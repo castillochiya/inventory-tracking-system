@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <meta charset="UTF-8">
@@ -138,27 +139,29 @@
         </div>
     </div>
 
-    <div id="tab-employees" class="tab-content">
-        <div class="management-box">
-            <h4 style="margin: 0; color: #28a745;">➕ Add New Personnel / Receiver</h4>
-            <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Register a new employee badge ID code into the system authority registry.</p>
-            <div class="inline-form">
-                <input type="text" id="newEmpId" placeholder="Employee Number" style="text-transform: uppercase;">
-                <input type="text" id="newEmpName" placeholder="EMPLOYEE NAME">
-                <button type="button" style="padding: 8px 15px; margin: 0; background-color: #28a745;" onclick="createNewEmployee()">Register Employee</button>
-            </div>
-        </div>
-
-        <h3>👥 Registered Personnel Registry</h3>
-        <div class="table-container" style="height: 350px;">
-            <table>
-                <thead>
-                    <tr><th>Employee ID</th><th>Full Name</th><th>Authorization Access</th><th style="width: 110px; text-align: center;">Actions</th></tr>
-                </thead>
-                <tbody id="employeesTable"></tbody>
-            </table>
-        </div>
+    <div class="employee-control-panel" style="margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #ddd;">
+    <h4>👥 Add Single Employee</h4>
+    <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+        <input type="text" id="newEmpId" placeholder="Employee ID (e.g., EMP04)" style="padding: 8px; flex: 1; min-width: 150px;">
+        <input type="text" id="newEmpName" placeholder="Full Name" style="padding: 8px; flex: 1; min-width: 150px;">
+        <button type="button" onclick="createNewEmployee()" style="padding: 8px 15px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Add Employee</button>
     </div>
+
+    <hr style="border: 0; border-top: 1px solid #ccc; margin: 15px 0;">
+
+    <h4>📂 Bulk Import Employees (Excel / CSV)</h4>
+    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+        Upload an Excel or CSV file. The file <strong>must</strong> contain these exact column headers: <br>
+        <code style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">EMPLOYEE NUMBER</code>, 
+        <code style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">EMPLOYEE NAME</code>, and 
+        <code style="background: #e9ecef; padding: 2px 6px; border-radius: 4px;">POSITION</code>.
+    </p>
+    
+    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <input type="file" id="employeeExcelFile" accept=".xlsx, .xls, .csv" style="padding: 5px;">
+        <button type="button" onclick="importEmployeeExcel()" style="padding: 8px 15px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">📤 Upload & Import</button>
+    </div>
+</div>
 
     <div id="tab-report" class="tab-content">
         <div class="report-header">
