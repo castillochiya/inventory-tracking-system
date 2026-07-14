@@ -122,6 +122,10 @@
                     <option value="pack">pack</option>
                     <option value="kg">kg</option>
                 </select>
+                <select id="newItemClassification">
+                    <option value="non-consumable">Non-Consumable</option>
+                    <option value="consumable">Consumable</option>
+                </select>
                 <button type="button" id="registerItemBtn" style="padding: 8px 15px; margin: 0;" onclick="createNewItemType()">Register Item</button>
             </div>
         </div>
@@ -133,7 +137,6 @@
                     <video id="preview" autoplay playsinline muted></video>
                     <canvas id="qrCanvas" style="display:none;"></canvas>
                 </div>
-                <button id="switchCamBtn" style="background: #34495e; font-size: 12px; padding: 6px 12px; margin-top: 10px;" onclick="cycleCameras()">🔄 Switch Camera Lens</button>
                 <div id="scannerStatus" class="status-badge">🔄 Initializing...</div>
             </div>
 
@@ -142,7 +145,7 @@
                 <div class="table-container">
                     <table>
                         <thead>
-                            <tr><th>Item ID</th><th>Item Name / Unit</th><th>In Stock</th><th style="width: 70px; text-align: center;">Action</th></tr>
+                            <tr><th>Item ID</th><th>Item Name / Unit</th><th>Classification</th><th>In Stock</th><th style="width: 70px; text-align: center;">Action</th></tr>
                         </thead>
                         <tbody id="inventoryTable"></tbody>
                     </table>
@@ -150,7 +153,41 @@
                 <button style="margin-top:10px; background:#6c757d; font-size:12px; padding:6px 12px;" onclick="resetDatabase()">🔄 Reset Shared Demo Data</button>
             </div>
         </div>
+
+        <h3 style="margin-top:25px;">📄 Inventory Custodian Slip (ICS)</h3>
+        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Non-consumable items valued at ₱49,999.99 and below.</p>
+        <div class="table-container" style="height: 260px;">
+            <table>
+                <thead>
+                    <tr><th>Item ID</th><th>Item Name</th><th>Unit</th><th>Quantity</th><th>Unit Value (₱)</th></tr>
+                </thead>
+                <tbody id="icsTable"></tbody>
+            </table>
+        </div>
+
+        <h3 style="margin-top:25px;">📄 Property Acknowledgement Receipt (PAR)</h3>
+        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Non-consumable items valued at ₱50,000.00 and above.</p>
+        <div class="table-container" style="height: 260px;">
+            <table>
+                <thead>
+                    <tr><th>Item ID</th><th>Item Name</th><th>Unit</th><th>Quantity</th><th>Unit Value (₱)</th></tr>
+                </thead>
+                <tbody id="parTable"></tbody>
+            </table>
+        </div>
+
+        <h3 style="margin-top:25px;">📄 Requisition and Issuance Slip (RIS)</h3>
+        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Consumable items.</p>
+        <div class="table-container" style="height: 260px;">
+            <table>
+                <thead>
+                    <tr><th>Item ID</th><th>Item Name</th><th>Unit</th><th>Quantity</th></tr>
+                </thead>
+                <tbody id="risTable"></tbody>
+            </table>
+        </div>
     </div>
+
 
     <div id="tab-employees" class="tab-content">
         <div class="management-box">
@@ -211,6 +248,16 @@
                 <tbody id="logTable"></tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<div id="nonConsumableAmountModal" class="modal">
+    <div class="modal-content">
+        <h3 style="color:#007bff;">💰 Non-Consumable Item Value</h3>
+        <p style="font-size:13px; color:#666;">Enter the unit value (₱) of this item. This determines whether it's filed under the Inventory Custodian Slip (₱49,999.99 and below) or the Property Acknowledgement Receipt (₱50,000.00 and above).</p>
+        <input type="number" id="nonConsumableAmount" min="0" step="0.01" placeholder="e.g., 4500.00">
+        <button id="submitNonConsumableBtn" style="width: 100%;" onclick="submitNonConsumableAmount()">Save Item</button>
+        <br><br><button style="background:#6c757d; width: 100%;" onclick="cancelPendingItemRegistration()">Cancel</button>
     </div>
 </div>
 
@@ -295,9 +342,10 @@
 // SEED DATA
 // ============================================================
 const defaultInventoryItems = {
-    "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12 },
-    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0 },
-    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5 }
+    "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12, classification: "non-consumable", amount: 750, assignedForm: "ICS" },
+    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0, classification: "non-consumable", amount: 3200, assignedForm: "ICS" },
+    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5, classification: "non-consumable", amount: 8990, assignedForm: "ICS" },
+    "ITEM004": { name: "Bond Paper A4", unit: "box", quantity: 20, classification: "consumable", amount: null, assignedForm: "RIS" }
 };
 const defaultEmployeeItems = {
     "EMP01": { name: "Juan Dela Cruz", position: "Warehouse Staff" },
@@ -425,13 +473,37 @@ function normalizeEmployeeShape(empData) {
     return empData;
 }
 
+const PAR_THRESHOLD = 50000; // ₱50,000.00 and above -> Property Acknowledgement Receipt
+
+function computeAssignedForm(classification, amount) {
+    if (classification === "consumable") return "RIS";
+    const amt = Number(amount);
+    if (!isFinite(amt)) return null; // non-consumable with no recorded value yet
+    return amt >= PAR_THRESHOLD ? "PAR" : "ICS";
+}
+
+// Older versions of this tracker stored items without a classification.
+// Default any such records to "consumable" -> RIS so they still show up
+// somewhere, without inventing a fake unit value for them.
+function normalizeInventoryShape(invData) {
+    for (let id in invData.items) {
+        const item = invData.items[id];
+        if (!item.classification) {
+            item.classification = "consumable";
+            item.amount = (item.amount === undefined) ? null : item.amount;
+        }
+        item.assignedForm = computeAssignedForm(item.classification, item.amount);
+    }
+    return invData;
+}
+
 async function loadAllData() {
     const [inv, emp, logs] = await Promise.all([
         loadOrSeed(STORAGE_KEYS.inventory, defaultInventoryItems),
         loadOrSeed(STORAGE_KEYS.employees, defaultEmployeeItems),
         loadOrSeed(STORAGE_KEYS.logs, [])
     ]);
-    inventory = inv;
+    inventory = normalizeInventoryShape(inv);
     employees = normalizeEmployeeShape(emp);
     transactionLogs = logs;
     dataReady = true;
@@ -485,7 +557,7 @@ async function mutateShared(key, mutatorFn, maxRetries = 6) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = JSON.parse(r.value); } catch(e){} }
+async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshEmployees() { const r = await safeGet(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = JSON.parse(r.value); } catch(e){} }
 
@@ -530,18 +602,14 @@ function setSyncStatus(state, text) {
 
 // ============================================================
 // QR SCANNING (jsQR — actively maintained, works via getUserMedia +
-// canvas frame sampling, no deprecated camera-enumeration APIs)
+// canvas frame sampling). Always requests the rear/environment-facing
+// camera — no lens-switching option, works uniformly on iOS and Android.
 // ============================================================
 let videoElement, canvasElement, canvasCtx;
-let availableCameras = [];
-let currentCamIndex = 0;
 let currentStream = null;
-let iosToggleCount = 0;
 let scanning = false;
 let lastScanCode = "";
 let lastScanTime = 0;
-
-const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 function stopActiveStreams() {
     scanning = false;
@@ -551,70 +619,49 @@ function stopActiveStreams() {
     }
 }
 
-async function initCameraSystem() {
-    updateBadgeDisplay("🔄 Initializing System Cameras...", "#007bff");
-    stopActiveStreams();
-    try {
-        // Request permission first so device labels are populated for the back-camera heuristic
-        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        tempStream.getTracks().forEach(t => t.stop());
-
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        availableCameras = devices.filter(d => d.kind === "videoinput");
-
-        let targetIndex = 0;
-        const backKeywords = ['back', 'rear', 'environment', 'main'];
-        for (let i = 0; i < availableCameras.length; i++) {
-            const label = (availableCameras[i].label || '').toLowerCase();
-            if (backKeywords.some(k => label.includes(k))) { targetIndex = i; break; }
-        }
-        if (targetIndex === 0 && availableCameras.length > 1) targetIndex = availableCameras.length - 1;
-        currentCamIndex = targetIndex;
-
-        await startSelectedCamera();
-    } catch (e) {
-        console.error(e);
-        updateBadgeDisplay("🔴 Permissions Blocked / Requires HTTPS", "#dc3545");
-    }
-}
-
-async function startSelectedCamera() {
+async function attachCameraStream(stream, badgeText) {
     videoElement = videoElement || document.getElementById('preview');
     canvasElement = canvasElement || document.getElementById('qrCanvas');
     canvasCtx = canvasCtx || canvasElement.getContext('2d', { willReadFrequently: true });
 
-    const targetCamera = availableCameras[currentCamIndex];
-    let constraints;
-    if (targetCamera && targetCamera.deviceId) {
-        constraints = { video: { deviceId: { exact: targetCamera.deviceId } }, audio: false };
-    } else if (isIOS) {
-        constraints = { video: { facingMode: iosToggleCount % 2 === 0 ? { exact: "environment" } : "user" }, audio: false };
-    } else {
-        constraints = { video: { facingMode: "environment" }, audio: false };
+    currentStream = stream;
+    videoElement.srcObject = stream;
+    videoElement.setAttribute("playsinline", true);
+    await videoElement.play();
+    scanning = true;
+    requestAnimationFrame(scanTick);
+    updateBadgeDisplay(badgeText, "#28a745");
+}
+
+async function initCameraSystem() {
+    updateBadgeDisplay("🔄 Initializing Rear Camera...", "#007bff");
+    stopActiveStreams();
+
+    // Strictly require the rear/environment-facing lens first (works on iOS Safari and Android Chrome).
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
+        await attachCameraStream(stream, "🟢 Rear Camera Active: Scan an Item");
+        return;
+    } catch (err) {
+        console.warn("Exact rear-camera constraint failed, trying relaxed constraint...", err);
     }
 
+    // Relaxed fallback: prefer environment-facing but allow the browser to pick the closest match
     try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        currentStream = stream;
-        videoElement.srcObject = stream;
-        videoElement.setAttribute("playsinline", true);
-        await videoElement.play();
-        scanning = true;
-        requestAnimationFrame(scanTick);
-        updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        await attachCameraStream(stream, "🟢 Rear Camera Active (Fallback)");
+        return;
     } catch (err) {
-        console.warn("Preferred camera constraints failed, falling back...", err);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-            currentStream = stream;
-            videoElement.srcObject = stream;
-            await videoElement.play();
-            scanning = true;
-            requestAnimationFrame(scanTick);
-            updateBadgeDisplay("🟢 Camera Active (Fallback)", "#28a745");
-        } catch (e2) {
-            updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
-        }
+        console.warn("Relaxed rear-camera constraint failed, trying any camera...", err);
+    }
+
+    // Last resort: devices with only one camera (e.g. some laptops/desktops) — no rear lens to prefer
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        await attachCameraStream(stream, "🟢 Camera Active (No Rear Lens Found)");
+    } catch (err) {
+        console.error(err);
+        updateBadgeDisplay("🔴 Permissions Blocked / Requires HTTPS", "#dc3545");
     }
 }
 
@@ -638,17 +685,6 @@ function scanTick() {
         } catch (e) { /* frame not ready yet, ignore */ }
     }
     requestAnimationFrame(scanTick);
-}
-
-function cycleCameras() {
-    updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
-    stopActiveStreams();
-    if (availableCameras.length > 1) {
-        currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
-    } else {
-        iosToggleCount++;
-    }
-    startSelectedCamera();
 }
 
 initCameraSystem();
@@ -703,32 +739,86 @@ function setBtnBusy(btnId, busy, busyLabel, normalLabel) {
 }
 
 // --- INVENTORY MANAGEMENT ENGINES ---
+let pendingNewItem = null; // holds { itemId, itemName, itemUnit } while the amount popup is open
+
 async function createNewItemType() {
     let idInput = document.getElementById("newItemId");
     let nameInput = document.getElementById("newItemName");
     let unitInput = document.getElementById("newItemUnit");
+    let classificationInput = document.getElementById("newItemClassification");
 
     let itemId = idInput.value.trim().toUpperCase();
     let itemName = nameInput.value.trim();
     let itemUnit = unitInput.value;
+    let classification = classificationInput.value; // "non-consumable" | "consumable"
 
     if (!itemId || !itemName) {
         showSystemNotification("Registration Void", "Please fill out both the Item ID and Item Name fields.", false);
         return;
     }
+    if (inventory.items[itemId]) {
+        showSystemNotification("Item Conflict", `Item ID "${itemId}" already exists in the system registry.`, false);
+        return;
+    }
 
+    if (classification === "non-consumable") {
+        // Ask for the unit value first — it decides ICS vs PAR — then finalize registration.
+        pendingNewItem = { itemId, itemName, itemUnit };
+        document.getElementById("nonConsumableAmount").value = "";
+        openModal("nonConsumableAmountModal");
+        return;
+    }
+
+    // Consumable items go straight to the Requisition and Issuance Slip, no amount needed.
+    await finalizeItemRegistration(itemId, itemName, itemUnit, "consumable", null);
+}
+
+async function submitNonConsumableAmount() {
+    if (!pendingNewItem) { closeModals(); return; }
+    const amountInput = document.getElementById("nonConsumableAmount");
+    const amount = parseFloat(amountInput.value);
+
+    if (!(amount >= 0)) {
+        showSystemNotification("Amount Required", "Please enter a valid unit value (₱) for this non-consumable item.", false);
+        return;
+    }
+
+    const { itemId, itemName, itemUnit } = pendingNewItem;
+    setBtnBusy("submitNonConsumableBtn", true, "Saving…", "Save Item");
+    try {
+        await finalizeItemRegistration(itemId, itemName, itemUnit, "non-consumable", amount);
+    } finally {
+        setBtnBusy("submitNonConsumableBtn", false, "", "Save Item");
+    }
+}
+
+function cancelPendingItemRegistration() {
+    pendingNewItem = null;
+    closeModals();
+}
+
+async function finalizeItemRegistration(itemId, itemName, itemUnit, classification, amount) {
+    const assignedForm = computeAssignedForm(classification, amount);
     setBtnBusy("registerItemBtn", true, "Saving…", "Register Item");
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
             if (latest.items[itemId]) throw new Error(`Item ID "${itemId}" already exists in the system registry.`);
-            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
+            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0, classification, amount, assignedForm };
             return latest;
         });
         await appendLog(itemId, "ADD", 0, "System Initialization", new Date().toLocaleDateString());
         await refreshInventory();
         renderTables();
-        idInput.value = ""; nameInput.value = "";
-        showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units.`);
+
+        document.getElementById("newItemId").value = "";
+        document.getElementById("newItemName").value = "";
+        pendingNewItem = null;
+        closeModals();
+
+        const formLabel = assignedForm === "ICS" ? "Inventory Custodian Slip"
+            : assignedForm === "PAR" ? "Property Acknowledgement Receipt"
+            : "Requisition and Issuance Slip";
+        showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units, filed under ${formLabel}.`);
     } catch (e) {
         showSystemNotification("Item Conflict", e.message, false);
     } finally {
@@ -1091,21 +1181,53 @@ function exportToExcel() {
 }
 
 // --- RENDERING ---
+function formatPeso(amount) {
+    const num = Number(amount);
+    return isFinite(num) ? num.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+}
+
+function classificationLabel(item) {
+    if (item.classification === "non-consumable") {
+        return item.assignedForm ? `Non-Consumable (${item.assignedForm})` : "Non-Consumable";
+    }
+    return "Consumable (RIS)";
+}
+
 function renderTables() {
     const invBody = document.getElementById("inventoryTable");
     invBody.innerHTML = "";
+    const icsBody = document.getElementById("icsTable");
+    const parBody = document.getElementById("parTable");
+    const risBody = document.getElementById("risTable");
+    icsBody.innerHTML = "";
+    parBody.innerHTML = "";
+    risBody.innerHTML = "";
+
     for (let id in inventory.items) {
         let item = inventory.items[id];
         let currentUnit = item.unit || "pcs";
         invBody.innerHTML += `<tr>
             <td><strong>${id}</strong></td>
             <td>${item.name} <span class="unit-label">${currentUnit}</span></td>
+            <td>${classificationLabel(item)}</td>
             <td>${item.quantity}</td>
             <td style="text-align:center;">
                 <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
             </td>
         </tr>`;
+
+        if (item.assignedForm === "ICS") {
+            icsBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td><td>₱${formatPeso(item.amount)}</td></tr>`;
+        } else if (item.assignedForm === "PAR") {
+            parBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td><td>₱${formatPeso(item.amount)}</td></tr>`;
+        } else if (item.assignedForm === "RIS") {
+            risBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td></tr>`;
+        }
     }
+
+    if (!icsBody.innerHTML) icsBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No items filed under ICS yet.</td></tr>`;
+    if (!parBody.innerHTML) parBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No items filed under PAR yet.</td></tr>`;
+    if (!risBody.innerHTML) risBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#999;">No consumable items filed under RIS yet.</td></tr>`;
 
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
