@@ -176,7 +176,18 @@
             </div>
         </div>
 
-        <h3>👥 Registered Personnel Registry</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <h3 style="margin:0;">👥 Registered Personnel Registry</h3>
+            <div style="display:flex; align-items:center; gap:6px;">
+                <label for="employeeSortSelect" style="font-size:13px; color:#555; font-weight:bold;">Sort by:</label>
+                <select id="employeeSortSelect" onchange="setEmployeeSort(this.value)" style="padding:6px 10px; border-radius:6px; border:1px solid #ccc; background:white; font-size:13px;">
+                    <option value="numAsc">Employee # (Lowest → Highest)</option>
+                    <option value="numDesc">Employee # (Highest → Lowest)</option>
+                    <option value="nameAsc">Employee Name (A → Z)</option>
+                    <option value="nameDesc">Employee Name (Z → A)</option>
+                </select>
+            </div>
+        </div>
         <div class="table-container" style="height: 350px;">
             <table>
                 <thead>
@@ -345,6 +356,27 @@ let pendingReleaseQty = 0;
 let activeEmployeeId = "";
 let editingOldEmpId = "";
 let dataReady = false;
+let employeeSortMode = "numAsc"; // numAsc | numDesc | nameAsc | nameDesc
+
+function setEmployeeSort(mode) {
+    employeeSortMode = mode;
+    renderTables();
+}
+
+function getSortedEmployeeEntries() {
+    const entries = Object.entries(employees.items); // [ [empId, {name, position}], ... ]
+    const numCollator = (a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" });
+    const nameCollator = (a, b) => (a[1].name || "").localeCompare(b[1].name || "", undefined, { sensitivity: "base" });
+
+    switch (employeeSortMode) {
+        case "numDesc": entries.sort((a, b) => numCollator(b, a)); break;
+        case "nameAsc": entries.sort(nameCollator); break;
+        case "nameDesc": entries.sort((a, b) => nameCollator(b, a)); break;
+        case "numAsc":
+        default: entries.sort(numCollator); break;
+    }
+    return entries;
+}
 
 // ============================================================
 // SHARED STORAGE LAYER
@@ -1077,8 +1109,7 @@ function renderTables() {
 
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
-    for (let empId in employees.items) {
-        const emp = employees.items[empId];
+    for (const [empId, emp] of getSortedEmployeeEntries()) {
         empBody.innerHTML += `<tr>
             <td><strong>${empId}</strong></td>
             <td>${emp.name}</td>
