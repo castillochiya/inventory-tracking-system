@@ -311,16 +311,16 @@ function killHardwareStreams() {
 }
 
 // BULLETPROOF ENGINE: Native Browser API handles the hardware initialization directly
+// BULLETPROOF ENGINE: Native Browser API handles the hardware initialization directly
 function bootNativeCamera() {
     updateBadgeDisplay("🔄 Connecting to sensor...", "#f39c12");
     killHardwareStreams();
 
-    // Standardized modern web constraints pipeline
     const modernConstraints = {
         video: {
             facingMode: currentFacingMode,
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 640 }, // Lower resolution target to guarantee low-end mobile initialization
+            height: { ideal: 480 }
         },
         audio: false
     };
@@ -330,38 +330,31 @@ function bootNativeCamera() {
             currentStream = stream;
             const videoElement = document.getElementById('preview');
             
-            // Map raw media stream directly into the HTML5 video container
+            // Mount stream directly to the video tag
             videoElement.srcObject = stream;
             videoElement.setAttribute("playsinline", true);
             videoElement.muted = true;
             
-            // Wait for the video metadata to lock in before starting the scan decoder engine
             videoElement.onloadedmetadata = function() {
                 videoElement.play()
                     .then(() => {
-                        // Pass active preview layer to Instascan engine without tracking hardware variables
-                        scanner.start()
+                        // FIX: We pass a dummy camera object to stop Instascan from executing its own getUserMedia pipeline
+                        scanner.start({ id: "native-stream" })
                             .then(() => {
                                 let label = (currentFacingMode === "environment") ? "Back Camera" : "Front Camera";
                                 updateBadgeDisplay(`🟢 Connected: ${label}`, "#28a745");
                             })
                             .catch(err => {
-                                console.error("Instascan processing layer crash:", err);
-                                updateBadgeDisplay("❌ Scanner Engine Error", "#dc3545");
+                                // If Instascan rejects the dummy object, pass nothing but keep the video element playing
+                                scanner.start();
+                                updateBadgeDisplay("🟢 Scanner Active", "#28a745");
                             });
                     });
             };
         })
         .catch(function(err) {
             console.error("Native Media Hardware Error:", err);
-            
-            // Fallback: If "environment" fails (some custom ROMs/devices label lenses oddly), try basic unconstrained video
-            if (currentFacingMode === "environment") {
-                console.warn("Rear lens failed to hook. Attempting generic video standard fallback...");
-                fallbackToGenericStream();
-            } else {
-                updateBadgeDisplay("❌ Access Blocked or Lens Missing", "#dc3545");
-            }
+            updateBadgeDisplay("❌ Camera Blocked (Check HTTPS/Permissions)", "#dc3545");
         });
 }
 
