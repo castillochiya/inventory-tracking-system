@@ -117,7 +117,7 @@
                 <div id="videoContainer">
                     <video id="preview" autoplay playsinline muted></video>
                 </div>
-                <button id="switchCamBtn" style="background: #34495e; font-size: 12px; padding: 6px 12px; margin-top: 10px;" onclick="cycleCameras()">🔄 Switch Camera Lens</button>
+                
                 <div id="scannerStatus" class="status-badge">🔄 Initializing...</div>
             </div>
 
@@ -305,6 +305,19 @@ function initCameraSystem() {
     updateBadgeDisplay("🔄 Initializing System Cameras...", "#007bff");
     stopActiveStreams();
 
+<<<<<<< HEAD
+    Instascan.Camera.getCameras().then(function (cameras) {
+        if (cameras.length > 0) {
+            let backCamera = null;
+            
+            // 1. Search through the phone's cameras for common back-camera labels
+            let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0', '後', 'trasera'];
+            for (let i = 0; i < cameras.length; i++) {
+                let name = cameras[i].name ? cameras[i].name.toLowerCase() : '';
+                if (backCamKeywords.some(keyword => name.includes(keyword))) {
+                    backCamera = cameras[i];
+                    break;
+=======
     if (isIOS) {
         // iOS bypass: Apple doesn't expose camera IDs properly. Use facingMode constraints directly.
         startSelectedCamera();
@@ -324,6 +337,7 @@ function initCameraSystem() {
                         targetIndex = i;
                         break;
                     }
+>>>>>>> 4fd8083975f3b0724c8ab661752931aa726a8fdf
                 }
                 
                 // Fallback: the primary rear camera is often listed last on multi-camera Androids
