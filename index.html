@@ -149,17 +149,6 @@
                 <button style="margin-top:10px; background:#6c757d; font-size:12px; padding:6px 12px;" onclick="resetDatabase()">🔄 Reset Shared Demo Data</button>
             </div>
         </div>
-
-        <h3 style="margin-top:25px;">📄 Requisition and Issuance Slip (RIS)</h3>
-        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">All registered items.</p>
-        <div class="table-container" style="height: 260px;">
-            <table>
-                <thead>
-                    <tr><th>Item ID</th><th>Item Name</th><th>Unit</th><th>Quantity</th></tr>
-                </thead>
-                <tbody id="risTable"></tbody>
-            </table>
-        </div>
     </div>
 
 
@@ -211,9 +200,28 @@
 
     <div id="tab-report" class="tab-content">
         <div class="report-header">
-            <h3 style="margin: 0;">📜 Transaction Audit Log (Tracking System)</h3>
+            <h3 style="margin: 0;">📄 Requisition and Issuance Slip (RIS)</h3>
             <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
         </div>
+        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Auto-filled whenever an item is released to an employee.</p>
+        <div class="table-container" style="height: 260px;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date Requested/ Received</th>
+                        <th>Quantity</th>
+                        <th>Unit</th>
+                        <th>Item Description</th>
+                        <th>Yes</th>
+                        <th>No</th>
+                        <th>Name and Signature Requested/ Received By</th>
+                    </tr>
+                </thead>
+                <tbody id="risTable"></tbody>
+            </table>
+        </div>
+
+        <h3 style="margin-top:25px;">📜 Transaction Audit Log (Tracking System)</h3>
         <div class="table-container" style="height: 400px;">
             <table>
                 <thead>
@@ -306,10 +314,10 @@
 // SEED DATA
 // ============================================================
 const defaultInventoryItems = {
-    "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12, classification: "non-consumable", amount: 750, assignedForm: "ICS" },
-    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0, classification: "non-consumable", amount: 3200, assignedForm: "ICS" },
-    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5, classification: "non-consumable", amount: 8990, assignedForm: "ICS" },
-    "ITEM004": { name: "Bond Paper A4", unit: "box", quantity: 20, classification: "consumable", amount: null, assignedForm: "RIS" }
+    "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12 },
+    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0 },
+    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5 },
+    "ITEM004": { name: "Bond Paper A4", unit: "box", quantity: 20 }
 };
 const defaultEmployeeItems = {
     "EMP01": { name: "Juan Dela Cruz", position: "Warehouse Staff" },
@@ -437,26 +445,12 @@ function normalizeEmployeeShape(empData) {
     return empData;
 }
 
-const PAR_THRESHOLD = 50000; // ₱50,000.00 and above -> Property Acknowledgement Receipt
-
-function computeAssignedForm(classification, amount) {
-    if (classification === "consumable") return "RIS";
-    const amt = Number(amount);
-    if (!isFinite(amt)) return null; // non-consumable with no recorded value yet
-    return amt >= PAR_THRESHOLD ? "PAR" : "ICS";
-}
-
-// Older versions of this tracker stored items without a classification.
-// Default any such records to "consumable" -> RIS so they still show up
-// somewhere, without inventing a fake unit value for them.
+// Older versions of this tracker may not have a unit set on every record.
+// Default any such records to "pcs" so the table always has something to show.
 function normalizeInventoryShape(invData) {
     for (let id in invData.items) {
         const item = invData.items[id];
-        if (!item.classification) {
-            item.classification = "consumable";
-            item.amount = (item.amount === undefined) ? null : item.amount;
-        }
-        item.assignedForm = computeAssignedForm(item.classification, item.amount);
+        if (!item.unit) item.unit = "pcs";
     }
     return invData;
 }
@@ -703,18 +697,14 @@ function setBtnBusy(btnId, busy, busyLabel, normalLabel) {
 }
 
 // --- INVENTORY MANAGEMENT ENGINES ---
-let pendingNewItem = null; // holds { itemId, itemName, itemUnit } while the amount popup is open
-
 async function createNewItemType() {
     let idInput = document.getElementById("newItemId");
     let nameInput = document.getElementById("newItemName");
     let unitInput = document.getElementById("newItemUnit");
-    let classificationInput = document.getElementById("newItemClassification");
 
     let itemId = idInput.value.trim().toUpperCase();
     let itemName = nameInput.value.trim();
     let itemUnit = unitInput.value;
-    let classification = classificationInput.value; // "non-consumable" | "consumable"
 
     if (!itemId || !itemName) {
         showSystemNotification("Registration Void", "Please fill out both the Item ID and Item Name fields.", false);
@@ -725,64 +715,20 @@ async function createNewItemType() {
         return;
     }
 
-    if (classification === "non-consumable") {
-        // Ask for the unit value first — it decides ICS vs PAR — then finalize registration.
-        pendingNewItem = { itemId, itemName, itemUnit };
-        document.getElementById("nonConsumableAmount").value = "";
-        openModal("nonConsumableAmountModal");
-        return;
-    }
-
-    // Consumable items go straight to the Requisition and Issuance Slip, no amount needed.
-    await finalizeItemRegistration(itemId, itemName, itemUnit, "consumable", null);
-}
-
-async function submitNonConsumableAmount() {
-    if (!pendingNewItem) { closeModals(); return; }
-    const amountInput = document.getElementById("nonConsumableAmount");
-    const amount = parseFloat(amountInput.value);
-
-    if (!(amount >= 0)) {
-        showSystemNotification("Amount Required", "Please enter a valid unit value (₱) for this non-consumable item.", false);
-        return;
-    }
-
-    const { itemId, itemName, itemUnit } = pendingNewItem;
-    setBtnBusy("submitNonConsumableBtn", true, "Saving…", "Save Item");
-    try {
-        await finalizeItemRegistration(itemId, itemName, itemUnit, "non-consumable", amount);
-    } finally {
-        setBtnBusy("submitNonConsumableBtn", false, "", "Save Item");
-    }
-}
-
-function cancelPendingItemRegistration() {
-    pendingNewItem = null;
-    closeModals();
-}
-
-async function finalizeItemRegistration(itemId, itemName, itemUnit, classification, amount) {
-    const assignedForm = computeAssignedForm(classification, amount);
     setBtnBusy("registerItemBtn", true, "Saving…", "Register Item");
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
             if (latest.items[itemId]) throw new Error(`Item ID "${itemId}" already exists in the system registry.`);
-            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0, classification, amount, assignedForm };
+            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
             return latest;
         });
         await appendLog(itemId, "ADD", 0, "System Initialization", new Date().toLocaleDateString());
         await refreshInventory();
         renderTables();
 
-        document.getElementById("newItemId").value = "";
-        document.getElementById("newItemName").value = "";
-        pendingNewItem = null;
-        closeModals();
-
-        const formLabel = assignedForm === "ICS" ? "Inventory Custodian Slip"
-            : assignedForm === "PAR" ? "Property Acknowledgement Receipt"
-            : "Requisition and Issuance Slip";
-        showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units, filed under ${formLabel}.`);
+        idInput.value = "";
+        nameInput.value = "";
+        showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units.`);
     } catch (e) {
         showSystemNotification("Item Conflict", e.message, false);
     } finally {
@@ -1144,28 +1090,40 @@ function exportToExcel() {
     document.body.removeChild(link);
 }
 
+// The RIS slip only reflects items that have actually been released to
+// someone — one row per RELEASE log entry, newest first (logs are already
+// stored newest-first). Unit and Item Description are looked up from the
+// current inventory record; if the item was since deleted, we fall back to
+// the item ID so the row doesn't go blank.
+function renderRisTable() {
+    const risBody = document.getElementById("risTable");
+    risBody.innerHTML = "";
+
+    const releases = (transactionLogs.items || []).filter(log => log.action === "RELEASE");
+
+    releases.forEach(log => {
+        const item = inventory.items[log.itemId];
+        const unit = item ? (item.unit || "pcs") : "—";
+        const description = item ? item.name : log.itemId;
+
+        risBody.innerHTML += `<tr>
+            <td>${log.authorizedDate}</td>
+            <td>${log.qty}</td>
+            <td>${unit}</td>
+            <td>${description}</td>
+            <td style="text-align:center;">✔</td>
+            <td></td>
+            <td>${log.employee}</td>
+        </tr>`;
+    });
+
+    if (!risBody.innerHTML) risBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#999;">No items released yet.</td></tr>`;
+}
+
 // --- RENDERING ---
-function formatPeso(amount) {
-    const num = Number(amount);
-    return isFinite(num) ? num.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
-}
-
-function classificationLabel(item) {
-    if (item.classification === "non-consumable") {
-        return item.assignedForm ? `Non-Consumable (${item.assignedForm})` : "Non-Consumable";
-    }
-    return "Consumable (RIS)";
-}
-
 function renderTables() {
     const invBody = document.getElementById("inventoryTable");
     invBody.innerHTML = "";
-    const icsBody = document.getElementById("icsTable");
-    const parBody = document.getElementById("parTable");
-    const risBody = document.getElementById("risTable");
-    icsBody.innerHTML = "";
-    parBody.innerHTML = "";
-    risBody.innerHTML = "";
 
     for (let id in inventory.items) {
         let item = inventory.items[id];
@@ -1173,25 +1131,14 @@ function renderTables() {
         invBody.innerHTML += `<tr>
             <td><strong>${id}</strong></td>
             <td>${item.name} <span class="unit-label">${currentUnit}</span></td>
-            <td>${classificationLabel(item)}</td>
             <td>${item.quantity}</td>
             <td style="text-align:center;">
                 <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
             </td>
         </tr>`;
-
-        if (item.assignedForm === "ICS") {
-            icsBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td><td>₱${formatPeso(item.amount)}</td></tr>`;
-        } else if (item.assignedForm === "PAR") {
-            parBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td><td>₱${formatPeso(item.amount)}</td></tr>`;
-        } else if (item.assignedForm === "RIS") {
-            risBody.innerHTML += `<tr><td><strong>${id}</strong></td><td>${item.name}</td><td>${currentUnit}</td><td>${item.quantity}</td></tr>`;
-        }
     }
 
-    if (!icsBody.innerHTML) icsBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No items filed under ICS yet.</td></tr>`;
-    if (!parBody.innerHTML) parBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No items filed under PAR yet.</td></tr>`;
-    if (!risBody.innerHTML) risBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#999;">No consumable items filed under RIS yet.</td></tr>`;
+    renderRisTable();
 
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
