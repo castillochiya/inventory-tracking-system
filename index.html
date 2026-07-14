@@ -274,7 +274,8 @@ let editingOldEmpId = "";
 // Camera tracking state configurations
 let availableCameras = [];
 let currentCamIndex = 0;
-let currentStream = null; 
+let currentStream = null; // Track the active video stream
+let iosToggleCount = 0;   // Used to flip facingMode on iOS
 
 // Detect if user is on an iOS device (iPhone/iPad)
 const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -291,19 +292,11 @@ scanner.addListener('scan', function (content) {
     handleItemScan(cleanCode);
 });
 
-// HARD CORE TRACK RESET: Forces the browser to fully release the front camera hardware channel
+// Clean up and stop hardware streams
 function stopActiveStreams() {
     if (currentStream) {
-        currentStream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-        });
+        currentStream.getTracks().forEach(track => track.stop());
         currentStream = null;
-    }
-    // Wipe the video source cache entirely
-    const videoElement = document.getElementById('preview');
-    if (videoElement) {
-        videoElement.srcObject = null;
     }
 }
 
@@ -313,14 +306,32 @@ function initCameraSystem() {
     stopActiveStreams();
 
     if (isIOS) {
+        // iOS bypass: Apple doesn't expose camera IDs properly. Use facingMode constraints directly.
         startSelectedCamera();
     } else {
+        // Android/Desktop: Fetch actual hardware lists
         Instascan.Camera.getCameras().then(function (cameras) {
             if (cameras.length > 0) {
-                // Reverse the camera array order. 
-                // Many modern phones list front cameras first, so starting from the back fixes defaults.
-                availableCameras = cameras.reverse();
-                currentCamIndex = 0;
+                availableCameras = cameras;
+                
+                // Smart search for the primary back lens
+                let targetIndex = 0; 
+                let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0'];
+                
+                for (let i = 0; i < cameras.length; i++) {
+                    let label = cameras[i].name ? cameras[i].name.toLowerCase() : '';
+                    if (backCamKeywords.some(keyword => label.includes(keyword))) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                
+                // Fallback: the primary rear camera is often listed last on multi-camera Androids
+                if (targetIndex === 0 && cameras.length > 1) {
+                    targetIndex = cameras.length - 1;
+                }
+                
+                currentCamIndex = targetIndex;
                 startSelectedCamera();
             } else {
                 updateBadgeDisplay("🔴 Camera not found.", "#dc3545");
@@ -337,49 +348,53 @@ function startSelectedCamera() {
     let constraints;
 
     if (isIOS) {
-        // iOS Force Constraint
+        // iOS Constraints: Toggle between environments manually
         constraints = {
-            video: { facingMode: { exact: "environment" } },
+            video: {
+                facingMode: iosToggleCount % 2 === 0 ? { exact: "environment" } : "user"
+            },
             audio: false
         };
     } else {
-        // Android Force Constraint
+        // Android Constraints: target specific camera array index ID
         let targetCamera = availableCameras[currentCamIndex];
         constraints = {
-            video: {
-                deviceId: targetCamera ? { exact: targetCamera.id } : undefined,
-                // Appends a fallback instruction demanding the back environment lens
-                facingMode: "environment"
-            },
+            video: targetCamera ? { deviceId: { exact: targetCamera.id } } : { facingMode: "environment" },
             audio: false
         };
     }
 
+    // Modern WebRTC activation
     navigator.mediaDevices.getUserMedia(constraints)
         .then(function(stream) {
             currentStream = stream;
             videoElement.srcObject = stream;
-            videoElement.setAttribute("playsinline", true);
+            videoElement.setAttribute("playsinline", true); // Fix iOS Safari full-screen video lockup
             videoElement.play();
             
-            return isIOS ? scanner.start() : scanner.start(availableCameras[currentCamIndex]);
+            // Hand control off to scanner engine
+            if (isIOS) {
+                return scanner.start(); // Generic start for iOS
+            } else {
+                return scanner.start(availableCameras[currentCamIndex]);
+            }
         })
         .then(() => {
             updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
         })
         .catch(err => {
-            console.warn("Advanced stream routing failed, executing simple stream fallback...", err);
-            // Dynamic fallback if deviceId rule fails on customized Android builds
-            let fallbackConstraints = { video: { facingMode: "environment" }, audio: false };
-            navigator.mediaDevices.getUserMedia(fallbackConstraints).then(function(s) {
-                currentStream = s;
-                videoElement.srcObject = s;
-                videoElement.play();
-                scanner.start();
-                updateBadgeDisplay("🟢 Camera Active (Environment Mode)", "#28a745");
-            }).catch(e => {
+            console.warn("Advanced stream routing failed, executing fallback initialization...", err);
+            
+            // Fallback for older devices/browsers that don't support custom constraints
+            if (availableCameras.length > 0) {
+                scanner.start(availableCameras[currentCamIndex]).then(() => {
+                    updateBadgeDisplay("🟢 Camera Active (Fallback)", "#28a745");
+                }).catch(e => {
+                    updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
+                });
+            } else {
                 updateBadgeDisplay("🔴 Setup Failed", "#dc3545");
-            });
+            }
         });
 }
 
@@ -387,19 +402,14 @@ function cycleCameras() {
     updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
 
     if (isIOS) {
-        // iOS alternative toggle utilizing the built-in browser engine switcher
-        stopActiveStreams();
+        // Toggle the iOS helper variable
+        iosToggleCount++;
         scanner.stop().then(() => {
-            let nextFacing = (scanner.camera && scanner.camera.facingMode === 'environment') ? 'user' : 'environment';
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: nextFacing }, audio: false })
-                .then(function(s) {
-                    currentStream = s;
-                    document.getElementById('preview').srcObject = s;
-                    scanner.start();
-                    updateBadgeDisplay("🟢 Lens Swapped", "#28a745");
-                });
+            stopActiveStreams();
+            startSelectedCamera();
         });
     } else {
+        // Android: standard array index loop
         if (availableCameras.length <= 1) {
             updateBadgeDisplay("🟡 Single Camera Detected", "#f39c12");
             return;
