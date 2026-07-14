@@ -61,8 +61,10 @@
         
         /* Modals */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(3px); padding: 10px; box-sizing: border-box; }
-        .modal-content { background: white; padding: 25px; border-radius: 10px; width: 100%; max-width: 340px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); box-sizing: border-box; }
-        input[type="number"], input[type="date"], .modal input[type="text"] { width: 95%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; text-align: center; box-sizing: border-box; }
+        .modal-content { background: white; padding: 25px; border-radius: 10px; width: 100%; max-width: 360px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); box-sizing: border-box; }
+        input[type="number"], input[type="date"], .modal input[type="text"], .modal select { width: 95%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; box-sizing: border-box; }
+        .modal select { text-align-last: center; }
+        input[type="number"], input[type="date"], .modal input[type="text"] { text-align: center; }
         .modal label { font-size: 13px; font-weight: bold; color: #555; text-align: left; display: block; margin-left: 2%; margin-top: 5px; }
 
         /* Notification Icon Layout States */
@@ -158,7 +160,7 @@
 
     <div id="tab-report" class="tab-content">
         <div class="report-header">
-            <h3>📜 Transaction Audit Log (Tracking System)</h3>
+            <h3 style="margin: 0;">📜 Transaction Audit Log (Tracking System)</h3>
             <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
         </div>
         <div class="table-container" style="height: 400px;">
@@ -195,7 +197,7 @@
     <div class="modal-content">
         <h3>How many to RELEASE?</h3>
         <input type="number" id="releaseQty" min="1" value="1">
-        <button style="width: 100%;" onclick="openEmployeeScanModal()">Next: Verify Receiver</button>
+        <button style="width: 100%;" onclick="openEmployeeSelectionModal()">Next: Verify Receiver</button>
         <br><br><button style="background:#6c757d; width: 100%;" onclick="closeModals()">Cancel</button>
     </div>
 </div>
@@ -203,18 +205,18 @@
 <div id="employeeModal" class="modal">
     <div class="modal-content">
         <h3>👤 Receiver Verification</h3>
-        <p style="color: #007bff; font-weight: bold; background: #e7f1ff; padding: 8px; border-radius: 4px; font-size: 13px;">
-            👉 Flash the Employee's QR code at the camera now!
+        <p style="color: #007bff; font-weight: bold; background: #e7f1ff; padding: 8px; border-radius: 4px; font-size: 13px; margin-bottom: 15px;">
+            👉 Select the receiving employee from the list below.
         </p>
         
-        <div id="modalVideoContainer"></div>
+        <p style="margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Select Employee:</p>
+        <select id="employeeDropdown" onchange="handleEmployeeSelect()">
+            </select>
         
-        <p style="font-size: 18px; font-weight: bold; color: #28a745; min-height: 24px;" id="empNameDisplay"></p>
-        
-        <p style="margin-bottom: 5px; font-weight: bold; color: #555;">Choose Release Date:</p>
+        <p style="margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Choose Release Date:</p>
         <input type="date" id="releaseDate">
         
-        <button id="finalReleaseBtn" style="width: 100%;" onclick="submitRelease()" disabled>Confirm & Deduct Stock</button>
+        <button id="finalReleaseBtn" style="width: 100%; margin-top: 15px;" onclick="submitRelease()" disabled>Confirm & Deduct Stock</button>
         <br><br><button style="background:#6c757d; width: 100%;" onclick="closeModals()">Cancel Transaction</button>
     </div>
 </div>
@@ -268,14 +270,14 @@ let activeItemId = "";
 let pendingReleaseQty = 0;
 let activeEmployeeId = "";
 let editingOldEmpId = ""; 
-let scanningMode = "ITEM"; 
 
 // Camera tracking state configurations
 let availableCameras = [];
 let currentCamIndex = 0;
+let currentStream = null; // Track the active video stream
 
-// Initialize the Instascan Object
-let scanner = new Instascan.Scanner({ video: document.getElementById('preview'), scanPeriod: 5 });
+// Initialize the Instascan Object (Don't pass video initially)
+let scanner = new Instascan.Scanner({ scanPeriod: 5 });
 
 scanner.addListener('scan', function (content) {
     let cleanCode = content.trim().toUpperCase();
@@ -283,26 +285,24 @@ scanner.addListener('scan', function (content) {
         let parts = cleanCode.split('/');
         cleanCode = parts[parts.length - 1]; 
     }
-    if (scanningMode === "ITEM") {
-        handleItemScan(cleanCode);
-    } else if (scanningMode === "EMPLOYEE") {
-        handleEmployeeScan(cleanCode);
-    }
+    handleItemScan(cleanCode);
 });
 
-// Optimized Back Camera Initialization Engine
+// Modern Mobile Camera System Initialization
 function initCameraSystem() {
     updateBadgeDisplay("🔄 Initializing System Cameras...", "#007bff");
     
+    // Stop any previous scanner activity or native tracks
+    stopActiveStreams();
+
     Instascan.Camera.getCameras().then(function (cameras) {
         if (cameras.length > 0) {
             availableCameras = cameras;
             
-            // Search algorithms to isolate back cameras across different hardware configurations
+            // Prioritize the back camera
             let targetIndex = 0; 
             let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0'];
             
-            // Attempt smart prioritization mapping
             for (let i = 0; i < cameras.length; i++) {
                 let label = cameras[i].name ? cameras[i].name.toLowerCase() : '';
                 if (backCamKeywords.some(keyword => label.includes(keyword))) {
@@ -311,7 +311,7 @@ function initCameraSystem() {
                 }
             }
             
-            // Failover prioritization rule: Mobile rear devices are typically loaded last in index queues
+            // Fallback: On many phones, the true back camera is listed last
             if (targetIndex === 0 && cameras.length > 1) {
                 targetIndex = cameras.length - 1;
             }
@@ -329,29 +329,69 @@ function initCameraSystem() {
 
 function startSelectedCamera() {
     if (availableCameras.length > 0) {
-        scanner.start(availableCameras[currentCamIndex]).then(() => {
-            setScannerBadge(scanningMode);
-        }).catch(err => {
-            console.error("Camera startup failure:", err);
-            updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
-        });
+        let targetCamera = availableCameras[currentCamIndex];
+        const videoElement = document.getElementById('preview');
+
+        // Use standard constraints to enforce phone media access explicitly
+        let constraints = {
+            video: {
+                deviceId: targetCamera.id ? { exact: targetCamera.id } : undefined,
+                facingMode: currentCamIndex === 0 ? "user" : "environment"
+            },
+            audio: false
+        };
+
+        // Standard WebRTC initialization alongside Instascan fallback
+        navigator.mediaDevices.getUserMedia(constraints)
+            .then(function(stream) {
+                currentStream = stream;
+                videoElement.srcObject = stream;
+                videoElement.setAttribute("playsinline", true); // Fix Safari/iOS lockup
+                videoElement.play();
+                
+                // Attach the active stream directly to the scanner engine
+                return scanner.start(targetCamera);
+            })
+            .then(() => {
+                updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
+            })
+            .catch(err => {
+                console.warn("Advanced stream routing failed, falling back to basic setup...", err);
+                // Fallback to basic method if constraints crash on older OS versions
+                scanner.start(targetCamera).then(() => {
+                    updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
+                }).catch(e => {
+                    updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
+                });
+            });
     }
 }
 
-// Interactive runtime cycle switch logic (Activated via the layout toggle button)
+// Helper to kill old tracks before initiating a camera lens swap
+function stopActiveStreams() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
+}
+
 function cycleCameras() {
     if (availableCameras.length <= 1) {
         showSystemNotification("Toggle Unavailable", "This hardware package lists only 1 active camera device.", false);
         return;
     }
+    
     currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
     updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
+    
+    // Explicitly stop both Instascan and browser media streams before swapping
     scanner.stop().then(() => {
+        stopActiveStreams();
         startSelectedCamera();
     });
 }
 
-// Execute camera pipeline configuration on page instantiation
+// Fire up the modern hardware camera engine
 initCameraSystem();
 
 function switchTab(targetTab) {
@@ -480,7 +520,6 @@ function deleteEmployee(empId) {
 }
 
 // --- TRANSACTION LIFECYCLE ---
-
 function handleItemScan(id) {
     if (!inventory[id]) {
         showSystemNotification("Scan Rejected", `Item profile code "${id}" not found inside inventory listings.`, false);
@@ -511,7 +550,7 @@ function submitAdd() {
     }
 }
 
-function openEmployeeScanModal() {
+function openEmployeeSelectionModal() {
     let qty = parseInt(document.getElementById("releaseQty").value);
     if (qty > inventory[activeItemId].quantity) {
         showSystemNotification("Allocation Error", `Requested allocation (${qty}) exceeds current stock capacity (${inventory[activeItemId].quantity}).`, false);
@@ -519,25 +558,29 @@ function openEmployeeScanModal() {
     }
     
     pendingReleaseQty = qty;
-    scanningMode = "EMPLOYEE"; 
-    setScannerBadge("EMPLOYEE");
     
-    const videoElement = document.getElementById("preview");
-    document.getElementById("modalVideoContainer").appendChild(videoElement);
+    // Build Employee Dropdown options dynamically from registered records
+    const dropdown = document.getElementById("employeeDropdown");
+    dropdown.innerHTML = '<option value="" disabled selected>-- Choose an Employee --</option>';
+    
+    for (let empId in employees) {
+        dropdown.innerHTML += `<option value="${empId}">${employees[empId]} (${empId})</option>`;
+    }
+    
     document.getElementById("releaseDate").valueAsDate = new Date();
+    document.getElementById("finalReleaseBtn").disabled = true; 
     openModal("employeeModal");
 }
 
-function handleEmployeeScan(empId) {
-    let nameDisplay = document.getElementById("empNameDisplay");
+function handleEmployeeSelect() {
+    let dropdown = document.getElementById("employeeDropdown");
     let submitBtn = document.getElementById("finalReleaseBtn");
     
-    if (employees[empId]) {
-        activeEmployeeId = empId;
-        nameDisplay.innerText = `Matched: ${employees[empId]}`;
+    if (dropdown.value) {
+        activeEmployeeId = dropdown.value;
         submitBtn.disabled = false;
     } else {
-        showSystemNotification("Invalid Credential", `Badge identification string "${empId}" rejected by system validation rules.`, false);
+        submitBtn.disabled = true;
     }
 }
 
@@ -589,7 +632,6 @@ function exportToExcel() {
 }
 
 // --- HISTORIES LOG & RECORD STORAGE ---
-
 function logTransaction(itemId, action, qty, employee, authorizedDate) {
     const timestamp = new Date().toLocaleString();
     transactionLogs.unshift({ timestamp, itemId, action, qty, employee, authorizedDate });
@@ -652,6 +694,12 @@ function renderTables() {
     }
 }
 
+function updateBadgeDisplay(text, color) {
+    const badge = document.getElementById("scannerStatus");
+    badge.innerText = text;
+    badge.style.background = color;
+}
+
 function openModal(id) {
     document.querySelectorAll('.modal').forEach(m => m.style.display = "none");
     document.getElementById(id).style.display = "flex";
@@ -659,32 +707,11 @@ function openModal(id) {
 
 function closeModals() {
     document.querySelectorAll('.modal').forEach(m => m.style.display = "none");
-    
-    const videoElement = document.getElementById("preview");
-    document.getElementById("videoContainer").appendChild(videoElement);
-    
-    scanningMode = "ITEM"; 
-    setScannerBadge("ITEM");
-    document.getElementById("empNameDisplay").innerText = "";
     document.getElementById("finalReleaseBtn").disabled = true;
     document.getElementById("addQty").value = 1;
     document.getElementById("releaseQty").value = 1;
     activeEmployeeId = "";
     editingOldEmpId = "";
-}
-
-function setScannerBadge(mode) {
-    if (mode === "ITEM") {
-        updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
-    } else {
-        updateBadgeDisplay("🔵 Awaiting EMPLOYEE QR Code...", "#007bff");
-    }
-}
-
-function updateBadgeDisplay(text, color) {
-    const badge = document.getElementById("scannerStatus");
-    badge.innerText = text;
-    badge.style.background = color;
 }
 
 function resetDatabase() {
