@@ -271,7 +271,14 @@ let pendingReleaseQty = 0;
 let activeEmployeeId = "";
 let editingOldEmpId = ""; 
 
+// Camera tracking state configurations
+let availableCameras = [];
+let currentCamIndex = 0;
 let currentStream = null; // Track the active video stream
+let iosToggleCount = 0;   // Used to flip facingMode on iOS
+
+// Detect if user is on an iOS device (iPhone/iPad)
+const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 // Initialize the Instascan Object
 let scanner = new Instascan.Scanner({ scanPeriod: 5 });
@@ -285,54 +292,138 @@ scanner.addListener('scan', function (content) {
     handleItemScan(cleanCode);
 });
 
-// Directly boot the rear camera using Instascan's built-in system
-function initCameraSystem() {
-    updateBadgeDisplay("🔄 Connecting Rear Camera...", "#007bff");
-
-    Instascan.Camera.getCameras().then(function (cameras) {
-        if (cameras.length > 0) {
-            let backCamera = null;
-            
-            // 1. Search through the phone's cameras for common back-camera labels
-            let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0', '後', 'trasera']; //
-            for (let i = 0; i < cameras.length; i++) {
-                let name = cameras[i].name ? cameras[i].name.toLowerCase() : '';
-                if (backCamKeywords.some(keyword => name.includes(keyword))) {
-                    backCamera = cameras[i];
-                    break;
-                }
-            }
-
-            // 2. Fallback: On almost all multi-camera iOS & Android devices, 
-            // the main rear lens is positioned at the very end of the detection list.
-            if (!backCamera && cameras.length > 1) {
-                backCamera = cameras[cameras.length - 1]; //
-            }
-
-            // 3. Last fallback: If only one camera exists, use it
-            if (!backCamera) {
-                backCamera = cameras[0];
-            }
-
-            // Fire up the selected hardware camera
-            scanner.start(backCamera).then(() => {
-                updateBadgeDisplay("🟢 Rear Camera Active: Ready to Scan", "#28a745");
-            }).catch(err => {
-                console.error("Scanner startup failed: ", err);
-                updateBadgeDisplay("🔴 Camera locked by another app/process.", "#dc3545");
-            });
-
-        } else {
-            updateBadgeDisplay("🔴 No cameras detected on this device.", "#dc3545");
-        }
-    }).catch(function (e) {
-        console.error("Camera detection error: ", e);
-        // Important security check notice
-        updateBadgeDisplay("🔴 Check HTTPS / Camera Permissions", "#dc3545");
-    });
+// Clean up and stop hardware streams
+function stopActiveStreams() {
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+        currentStream = null;
+    }
 }
 
-// Start the sequence
+// Master camera boot loader
+function initCameraSystem() {
+    updateBadgeDisplay("🔄 Initializing System Cameras...", "#007bff");
+    stopActiveStreams();
+
+    if (isIOS) {
+        // iOS bypass: Apple doesn't expose camera IDs properly. Use facingMode constraints directly.
+        startSelectedCamera();
+    } else {
+        // Android/Desktop: Fetch actual hardware lists
+        Instascan.Camera.getCameras().then(function (cameras) {
+            if (cameras.length > 0) {
+                availableCameras = cameras;
+                
+                // Smart search for the primary back lens
+                let targetIndex = 0; 
+                let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0'];
+                
+                for (let i = 0; i < cameras.length; i++) {
+                    let label = cameras[i].name ? cameras[i].name.toLowerCase() : '';
+                    if (backCamKeywords.some(keyword => label.includes(keyword))) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
+                
+                // Fallback: the primary rear camera is often listed last on multi-camera Androids
+                if (targetIndex === 0 && cameras.length > 1) {
+                    targetIndex = cameras.length - 1;
+                }
+                
+                currentCamIndex = targetIndex;
+                startSelectedCamera();
+            } else {
+                updateBadgeDisplay("🔴 Camera not found.", "#dc3545");
+            }
+        }).catch(function(e) {
+            console.error(e);
+            updateBadgeDisplay("🔴 Permissions Blocked / Require HTTPS", "#dc3545");
+        });
+    }
+}
+
+function startSelectedCamera() {
+    const videoElement = document.getElementById('preview');
+    let constraints;
+
+    if (isIOS) {
+        // iOS Constraints: Toggle between environments manually
+        constraints = {
+            video: {
+                facingMode: iosToggleCount % 2 === 0 ? { exact: "environment" } : "user"
+            },
+            audio: false
+        };
+    } else {
+        // Android Constraints: target specific camera array index ID
+        let targetCamera = availableCameras[currentCamIndex];
+        constraints = {
+            video: targetCamera ? { deviceId: { exact: targetCamera.id } } : { facingMode: "environment" },
+            audio: false
+        };
+    }
+
+    // Modern WebRTC activation
+    navigator.mediaDevices.getUserMedia(constraints)
+        .then(function(stream) {
+            currentStream = stream;
+            videoElement.srcObject = stream;
+            videoElement.setAttribute("playsinline", true); // Fix iOS Safari full-screen video lockup
+            videoElement.play();
+            
+            // Hand control off to scanner engine
+            if (isIOS) {
+                return scanner.start(); // Generic start for iOS
+            } else {
+                return scanner.start(availableCameras[currentCamIndex]);
+            }
+        })
+        .then(() => {
+            updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
+        })
+        .catch(err => {
+            console.warn("Advanced stream routing failed, executing fallback initialization...", err);
+            
+            // Fallback for older devices/browsers that don't support custom constraints
+            if (availableCameras.length > 0) {
+                scanner.start(availableCameras[currentCamIndex]).then(() => {
+                    updateBadgeDisplay("🟢 Camera Active (Fallback)", "#28a745");
+                }).catch(e => {
+                    updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
+                });
+            } else {
+                updateBadgeDisplay("🔴 Setup Failed", "#dc3545");
+            }
+        });
+}
+
+function cycleCameras() {
+    updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
+
+    if (isIOS) {
+        // Toggle the iOS helper variable
+        iosToggleCount++;
+        scanner.stop().then(() => {
+            stopActiveStreams();
+            startSelectedCamera();
+        });
+    } else {
+        // Android: standard array index loop
+        if (availableCameras.length <= 1) {
+            updateBadgeDisplay("🟡 Single Camera Detected", "#f39c12");
+            return;
+        }
+        currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
+        
+        scanner.stop().then(() => {
+            stopActiveStreams();
+            startSelectedCamera();
+        });
+    }
+}
+
+// Start the modernized camera hardware cycle
 initCameraSystem();
 
 function switchTab(targetTab) {
