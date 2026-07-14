@@ -285,79 +285,54 @@ scanner.addListener('scan', function (content) {
     handleItemScan(cleanCode);
 });
 
-// Hard-stop any existing stream before requesting the camera
-function stopActiveStreams() {
-    if (currentStream) {
-        currentStream.getTracks().forEach(track => {
-            track.stop();
-            track.enabled = false;
-        });
-        currentStream = null;
-    }
-    const videoElement = document.getElementById('preview');
-    if (videoElement) {
-        videoElement.srcObject = null;
-    }
-}
-
-// Directly boot the rear camera
+// Directly boot the rear camera using Instascan's built-in system
 function initCameraSystem() {
     updateBadgeDisplay("🔄 Connecting Rear Camera...", "#007bff");
-    stopActiveStreams();
 
-    const videoElement = document.getElementById('preview');
-    
-    // Strict requirement: Enforce the rear-facing camera on both iOS and Android
-    const strictConstraints = {
-        video: { 
-            facingMode: { exact: "environment" } 
-        },
-        audio: false
-    };
+    Instascan.Camera.getCameras().then(function (cameras) {
+        if (cameras.length > 0) {
+            let backCamera = null;
+            
+            // 1. Search through the phone's cameras for common back-camera labels
+            let backCamKeywords = ['back', 'rear', 'environment', 'main', 'camera 1', 'facing back', '0', '後', 'trasera']; //
+            for (let i = 0; i < cameras.length; i++) {
+                let name = cameras[i].name ? cameras[i].name.toLowerCase() : '';
+                if (backCamKeywords.some(keyword => name.includes(keyword))) {
+                    backCamera = cameras[i];
+                    break;
+                }
+            }
 
-    navigator.mediaDevices.getUserMedia(strictConstraints)
-        .then(function(stream) {
-            currentStream = stream;
-            videoElement.srcObject = stream;
-            videoElement.setAttribute("playsinline", true); // Fix iOS full-screen video hijack
-            videoElement.play();
-            
-            // Start the scanner engine using the active stream
-            return scanner.start();
-        })
-        .then(() => {
-            updateBadgeDisplay("🟢 Rear Camera Active: Ready to Scan", "#28a745");
-        })
-        .catch(err => {
-            console.warn("Strict rear camera lock failed. Trying standard environment query...", err);
-            
-            // Fallback: Some unique Android setups error out on "exact" requirements.
-            // This tries a relaxed "environment" request.
-            const relaxedConstraints = {
-                video: { facingMode: "environment" },
-                audio: false
-            };
-            
-            navigator.mediaDevices.getUserMedia(relaxedConstraints)
-                .then(function(stream) {
-                    currentStream = stream;
-                    videoElement.srcObject = stream;
-                    videoElement.setAttribute("playsinline", true);
-                    videoElement.play();
-                    
-                    return scanner.start();
-                })
-                .then(() => {
-                    updateBadgeDisplay("🟢 Rear Camera Active", "#28a745");
-                })
-                .catch(fallbackErr => {
-                    console.error("Could not access rear camera:", fallbackErr);
-                    updateBadgeDisplay("🔴 Rear Camera Access Failed", "#dc3545");
-                });
-        });
+            // 2. Fallback: On almost all multi-camera iOS & Android devices, 
+            // the main rear lens is positioned at the very end of the detection list.
+            if (!backCamera && cameras.length > 1) {
+                backCamera = cameras[cameras.length - 1]; //
+            }
+
+            // 3. Last fallback: If only one camera exists, use it
+            if (!backCamera) {
+                backCamera = cameras[0];
+            }
+
+            // Fire up the selected hardware camera
+            scanner.start(backCamera).then(() => {
+                updateBadgeDisplay("🟢 Rear Camera Active: Ready to Scan", "#28a745");
+            }).catch(err => {
+                console.error("Scanner startup failed: ", err);
+                updateBadgeDisplay("🔴 Camera locked by another app/process.", "#dc3545");
+            });
+
+        } else {
+            updateBadgeDisplay("🔴 No cameras detected on this device.", "#dc3545");
+        }
+    }).catch(function (e) {
+        console.error("Camera detection error: ", e);
+        // Important security check notice
+        updateBadgeDisplay("🔴 Check HTTPS / Camera Permissions", "#dc3545");
+    });
 }
 
-// Start the rear camera on page load
+// Start the sequence
 initCameraSystem();
 
 function switchTab(targetTab) {
