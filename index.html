@@ -279,78 +279,129 @@ let editingOldEmpId = "";
 
 // --- ALL PREVIOUS CORNERSTONE VARIABLES (inventory, employees, logs) REMAIN THE SAME ---
 
-let html5QrCode = null;
+let currentStream = null;
+let currentCamIndex = 0;
 
-// Clean up and stop any active camera sessions
-function stopActiveStreams() {
-    if (html5QrCode && html5QrCode.isScanning) {
-        return html5QrCode.stop().catch(err => console.warn("Failed to stop scanner cleanly:", err));
-    }
-    return Promise.resolve();
-}
+// Standard declaration for Instascan
+let scanner = new Instascan.Scanner({ 
+    video: document.getElementById('preview'), 
+    scanPeriod: 1,  
+    refractoryPeriod: 2000 
+});
 
-function initCameraSystem() {
-    updateBadgeDisplay("🔄 Connecting to camera...", "#f39c12");
-
-    // Clear any existing instance
-    stopActiveStreams().then(() => {
-        // Create the modern scanner instance (hides the library's default UI buttons)
-        html5QrCode = new Html5Qrcode("reader");
-
-        // Configuration targeting the standard rear camera and quick scanning
-        const config = { 
-            fps: 15, 
-            qrbox: function(viewfinderWidth, viewfinderHeight) {
-                // Dynamic square viewfinder
-                const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-                const boxSize = Math.floor(minEdge * 0.7);
-                return { width: boxSize, height: boxSize };
-            }
-        };
-
-        // Start scanning with strict instructions to use the primary rear-facing camera
-        html5QrCode.start(
-            { facingMode: "environment" }, // Forces standard rear camera, ignores wide-angle/front
-            config,
-            onScanSuccess,
-            onScanFailure
-        )
-        .then(() => {
-            updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
-        })
-        .catch(err => {
-            console.error("Camera activation failed:", err);
-            updateBadgeDisplay("❌ Camera Blocked or Unavailable", "#dc3545");
-        });
-    });
-}
-
-// Success callback when a QR code is parsed
-function onScanSuccess(decodedText, decodedResult) {
-    let cleanCode = decodedText.trim().toUpperCase();
-    
-    // Handle QR codes wrapped in URLs
+scanner.addListener('scan', function (content) {
+    let cleanCode = content.trim().toUpperCase();
     if (cleanCode.includes("://") || cleanCode.includes("WWW.")) {
         let parts = cleanCode.split('/');
         cleanCode = parts[parts.length - 1]; 
     }
-    
-    // Play a gentle notification beep (optional)
     handleItemScan(cleanCode);
+});
+
+// Clean hardware shutdown sequence
+function killHardwareStreams() {
+    try { 
+        scanner.stop(); 
+    } catch(e) {
+        console.log("Scanner stop ignored or already stopped.");
+    }
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => {
+            track.stop();
+        });
+        currentStream = null;
+    }
+    const videoElement = document.getElementById('preview');
+    if (videoElement) {
+        videoElement.srcObject = null;
+    }
 }
 
-// Quietly ignore frame read failures (normal during scanning sweeps)
-function onScanFailure(error) {
-    // Keep console quiet to maintain performance
+// THE CURE: Use real Instascan camera objects but filter out wide/ultra-wide/front sensors strictly
+function bootNativeCamera() {
+    updateBadgeDisplay("🔄 Scanning camera sensors...", "#f39c12");
+    killHardwareStreams();
+
+    Instascan.Camera.getCameras().then(function (cameras) {
+        if (cameras.length > 0) {
+            console.log("Detected cameras:", cameras);
+            
+            // Filter to find the standard/normal rear camera
+            const standardRearCameras = cameras.filter(cam => {
+                const name = cam.name.toLowerCase();
+                // Exclude known front, wide, ultra-wide, telephoto, and virtual cameras
+                return !name.includes('front') && 
+                       !name.includes('selfie') && 
+                       !name.includes('wide') && 
+                       !name.includes('ultra') && 
+                       !name.includes('zoom') && 
+                       !name.includes('tele') &&
+                       !name.includes('virtual');
+            });
+
+            // Fallback chain: Standard Rear -> Any Rear -> First Available Camera
+            if (standardRearCameras.length > 0) {
+                availableCameras = standardRearCameras;
+            } else {
+                const generalRearCameras = cameras.filter(cam => !cam.name.toLowerCase().includes('front'));
+                availableCameras = generalRearCameras.length > 0 ? generalRearCameras : cameras;
+            }
+
+            // Keep the selected index within bounds
+            if (currentCamIndex >= availableCameras.length) {
+                currentCamIndex = 0;
+            }
+
+            const selectedCamera = availableCameras[currentCamIndex];
+            updateBadgeDisplay(`🔄 Starting: ${selectedCamera.name || "Rear Camera"}...`, "#f39c12");
+
+            // Start scanner using the ACTUAL Instascan Camera object (prevents black screen crash)
+            scanner.start(selectedCamera)
+                .then(() => {
+                    // Grab the active stream from the video tag to track it for clean shutdowns
+                    const videoElement = document.getElementById('preview');
+                    if (videoElement && videoElement.srcObject) {
+                        currentStream = videoElement.srcObject;
+                    }
+                    updateBadgeDisplay(`🟢 Active: ${selectedCamera.name || "Main Camera"}`, "#28a745");
+                })
+                .catch(err => {
+                    console.error("Instascan failed to start selected camera:", err);
+                    // Fallback to basic start if explicit selection fails
+                    scanner.start()
+                        .then(() => {
+                            updateBadgeDisplay("🟢 Active (Auto-selected Camera)", "#28a745");
+                        })
+                        .catch(fallbackErr => {
+                            updateBadgeDisplay("❌ Camera Initialization Failed", "#dc3545");
+                        });
+                });
+
+        } else {
+            updateBadgeDisplay("❌ No cameras found on this device.", "#dc3545");
+        }
+    }).catch(function (e) {
+        console.error("Camera detection error:", e);
+        updateBadgeDisplay("❌ Camera Access Blocked", "#dc3545");
+    });
 }
 
-// Ensure hardware releases when navigating away
-window.addEventListener('beforeunload', stopActiveStreams);
+// Cycle button handler: cleanly steps through compatible standard cameras
+function cycleCamera() {
+    if (availableCameras.length <= 1) {
+        updateBadgeDisplay("🔄 Only 1 back camera found. Reloading...", "#f39c12");
+        bootNativeCamera();
+        return;
+    }
+    currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
+    bootNativeCamera();
+}
 
-// Kickstart the camera automatically on boot
-initCameraSystem();
+// Ensure hardware releases if user closes tab
+window.addEventListener('beforeunload', killHardwareStreams);
 
-// --- KEEP ALL RENDER TABLES AND INVENTORY MODAL FUNCTIONS BELOW ---
+// Kickstart system
+bootNativeCamera();
 
 // --- KEEP ALL RENDER TABLES AND INVENTORY MODAL SUBMIT FUNCTIONS BELOW THIS LINE ---
 
