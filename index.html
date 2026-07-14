@@ -393,30 +393,7 @@ function startSelectedCamera() {
         });
 }
 
-function cycleCameras() {
-    updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
 
-    if (isIOS) {
-        // Toggle the iOS helper variable
-        iosToggleCount++;
-        scanner.stop().then(() => {
-            stopActiveStreams();
-            startSelectedCamera();
-        });
-    } else {
-        // Android: standard array index loop
-        if (availableCameras.length <= 1) {
-            updateBadgeDisplay("🟡 Single Camera Detected", "#f39c12");
-            return;
-        }
-        currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
-        
-        scanner.stop().then(() => {
-            stopActiveStreams();
-            startSelectedCamera();
-        });
-    }
-}
 
 // Start the modernized camera hardware cycle
 initCameraSystem();
