@@ -281,7 +281,11 @@ let iosToggleCount = 0;   // Used to flip facingMode on iOS
 const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 // Initialize the Instascan Object
-let scanner = new Instascan.Scanner({ scanPeriod: 5 });
+let scanner = new Instascan.Scanner({ 
+    video: document.getElementById('preview'), 
+    scanPeriod: 1,  // Reduced from 5 to 1. This forces the engine to scan 5x faster!
+    refractoryPeriod: 2000 // Prevents accidental duplicate scans for 2 seconds
+});
 
 scanner.addListener('scan', function (content) {
     let cleanCode = content.trim().toUpperCase();
