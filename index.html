@@ -615,59 +615,75 @@ function createNewEmployee() {
 
 // Update Table Rendering specifically for Employee Columns
 function renderTables() {
-    // [Inventory and Log rendering sections remain exactly the same]
+    // 1. RENDER INVENTORY TABLE
     const invBody = document.getElementById("inventoryTable");
-    invBody.innerHTML = "";
-    for (let id in inventory) {
-        let currentUnit = inventory[id].unit || "pcs";
-        invBody.innerHTML += `<tr>
-            <td><strong>${id}</strong></td>
-            <td>${inventory[id].name} <span class="unit-label">${currentUnit}</span></td>
-            <td>${inventory[id].quantity}</td>
-            <td style="text-align:center;">
-                <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
-            </td>
-        </tr>`;
-    }
-
-    // UPDATED: Employee table renderer including POSITIONS
-    const empBody = document.getElementById("employeesTable");
-    empBody.innerHTML = "";
-    
-    // Add custom header column for Position inside your table HTML if you haven't already
-    for (let empId in employees) {
-        // Handle old string format if converting data structures
-        let empObj = typeof employees[empId] === "object" ? employees[empId] : { name: employees[empId], position: "Staff" };
-        
-        empBody.innerHTML += `<tr>
-            <td><strong>${empId}</strong></td>
-            <td>${empObj.name}</td>
-            <td><em style="color:#555;">${empObj.position}</em></td>
-            <td><span style="color:#28a745; font-weight:bold;">✔ Verified Active</span></td>
-            <td style="text-align:center;">
-                <button class="danger action-btn" onclick="deleteEmployee('${empId}')" title="Remove Employee Instance">🗑️</button>
-            </td>
-        </tr>`;
-    }
-
-    const logBody = document.getElementById("logTable");
-    logBody.innerHTML = "";
-    if (transactionLogs.length === 0) {
-        logBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#999;">No transaction logs recorded yet.</td></tr>`;
-    } else {
-        transactionLogs.forEach(log => {
-            let actionClass = "log-add";
-            if (log.action === "RELEASE" || log.action === "DELETE") actionClass = "log-release";
-            
-            logBody.innerHTML += `<tr>
-                <td>${log.timestamp}</td>
-                <td><strong>${log.itemId}</strong></td>
-                <td class="${actionClass}">${log.action}</td>
-                <td>${log.qty}</td>
-                <td>${log.employee}</td>
-                <td>${log.authorizedDate}</td>
+    if (invBody) {
+        invBody.innerHTML = "";
+        for (let id in inventory) {
+            let currentUnit = inventory[id].unit || "pcs";
+            invBody.innerHTML += `<tr>
+                <td><strong>${id}</strong></td>
+                <td>${inventory[id].name} <span class="unit-label">${currentUnit}</span></td>
+                <td>${inventory[id].quantity}</td>
+                <td style="text-align:center;">
+                    <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
+                </td>
             </tr>`;
-        });
+        }
+    }
+
+    // 2. RENDER EMPLOYEES TABLE (FIXED ALIGNMENT)
+    const empBody = document.getElementById("employeesTable");
+    if (empBody) {
+        empBody.innerHTML = "";
+        
+        for (let empId in employees) {
+            let empData = employees[empId];
+            let empName = "";
+            let empPosition = "Staff";
+
+            // Safety Check: Normalize legacy string format ("Maria Santos") to Object format ({name: "Maria Santos", position: "Staff"})
+            if (typeof empData === "object" && empData !== null) {
+                empName = empData.name || "Unknown Name";
+                empPosition = empData.position || "Staff";
+            } else if (typeof empData === "string") {
+                empName = empData; // Use the legacy string directly
+            }
+
+            // Ensure column cells exactly match: ID | NAME | POSITION | STATUS | ACTIONS
+            empBody.innerHTML += `<tr>
+                <td><strong>${empId}</strong></td>
+                <td>${empName}</td>
+                <td><em style="color:#555;">${empPosition}</em></td>
+                <td><span style="color:#28a745; font-weight:bold;">✔ Verified Active</span></td>
+                <td style="text-align:center;">
+                    <button class="danger action-btn" onclick="deleteEmployee('${empId}')" title="Remove Employee">🗑️</button>
+                </td>
+            </tr>`;
+        }
+    }
+
+    // 3. RENDER LOG TABLE
+    const logBody = document.getElementById("logTable");
+    if (logBody) {
+        logBody.innerHTML = "";
+        if (transactionLogs.length === 0) {
+            logBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#999;">No transaction logs recorded yet.</td></tr>`;
+        } else {
+            transactionLogs.forEach(log => {
+                let actionClass = "log-add";
+                if (log.action === "RELEASE" || log.action === "DELETE") actionClass = "log-release";
+                
+                logBody.innerHTML += `<tr>
+                    <td>${log.timestamp}</td>
+                    <td><strong>${log.itemId}</strong></td>
+                    <td class="${actionClass}">${log.action}</td>
+                    <td>${log.qty}</td>
+                    <td>${log.employee}</td>
+                    <td>${log.authorizedDate}</td>
+                </tr>`;
+            });
+        }
     }
 }
 
