@@ -483,79 +483,106 @@ function importEmployeeExcel() {
         return;
     }
 
+    // Ensure the XLSX library is loaded before continuing
+    if (typeof XLSX === "undefined") {
+        showSystemNotification(
+            "Library Missing", 
+            "The Excel processing library failed to load. Please check your internet connection and verify the <script> tag is in the head of your file.", 
+            false
+        );
+        return;
+    }
+
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
             const data = new Uint8Array(e.target.result);
             const workbook = XLSX.read(data, { type: 'array' });
             
-            // Access the first sheet in the Excel book
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
             
-            // Parse raw worksheet entries to JSON format
+            // Convert sheet to json
             const rawRows = XLSX.utils.sheet_to_json(worksheet);
 
-            if (rawRows.length === 0) {
-                showSystemNotification("File Empty", "The uploaded sheet contains no data rows.", false);
+            if (!rawRows || rawRows.length === 0) {
+                showSystemNotification("File Empty", "The uploaded sheet contains no readable rows.", false);
                 return;
             }
 
-            // Normalization check: Let's search for our exact required columns (case-insensitive & trimmed space checks)
+            // Normalization check: Clean and identify matched header column keys
             const firstRow = rawRows[0];
             let keyEmpNum = "";
             let keyEmpName = "";
             let keyPosition = "";
 
+            // Helper to strip non-alphanumeric characters for flexible matching
+            const sanitizeHeader = (str) => String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+
             for (let key in firstRow) {
-                const cleanKey = key.trim().toUpperCase();
-                if (cleanKey === "EMPLOYEE NUMBER") keyEmpNum = key;
-                if (cleanKey === "EMPLOYEE NAME") keyEmpName = key;
-                if (cleanKey === "POSITION") keyPosition = key;
+                const cleanKey = sanitizeHeader(key);
+                if (cleanKey === "employeenumber") keyEmpNum = key;
+                if (cleanKey === "employeename") keyEmpName = key;
+                if (cleanKey === "position") keyPosition = key;
             }
 
+            // If we are missing columns, stop and tell the user exactly which ones failed
             if (!keyEmpNum || !keyEmpName || !keyPosition) {
+                let missing = [];
+                if (!keyEmpNum) missing.push("'EMPLOYEE NUMBER'");
+                if (!keyEmpName) missing.push("'EMPLOYEE NAME'");
+                if (!keyPosition) missing.push("'POSITION'");
+                
                 showSystemNotification(
-                    "Header Mismatch", 
-                    "Could not find exact columns: 'EMPLOYEE NUMBER', 'EMPLOYEE NAME', and 'POSITION'. Check spelling.", 
+                    "Header Error", 
+                    `The system could not identify these columns: ${missing.join(", ")}. Please make sure they exist on the first row of your sheet.`, 
                     false
                 );
                 return;
             }
 
-            // Process rows
             let importCount = 0;
             let duplicateCount = 0;
 
-            rawRows.forEach(row => {
-                const empId = String(row[keyEmpNum] || "").trim().toUpperCase();
-                const empName = String(row[keyEmpName] || "").trim();
-                const empPos = String(row[keyPosition] || "").trim();
+            rawRows.forEach((row, index) => {
+                // Safeguard against missing or undefined cell values
+                const rawId = row[keyEmpNum];
+                const rawName = row[keyEmpName];
+                const rawPos = row[keyPosition];
+
+                const empId = rawId ? String(rawId).trim().toUpperCase() : "";
+                const empName = rawName ? String(rawName).trim() : "";
+                const empPos = rawPos ? String(rawPos).trim() : "Staff";
 
                 if (empId && empName) {
-                    // Save to global employee tracking object
                     if (employees[empId]) {
-                        duplicateCount++; // Tracking duplicates to skip or overwrite
+                        duplicateCount++;
                     }
                     employees[empId] = {
                         name: empName,
-                        position: empPos || "Unassigned"
+                        position: empPos
                     };
                     importCount++;
+                } else {
+                    console.warn(`Row ${index + 2} skipped due to missing ID or Name value.`);
                 }
             });
 
             saveAndRefresh();
-            fileInput.value = ""; // clear input
+            fileInput.value = ""; // Clear file input
             
             showSystemNotification(
-                "Import Complete", 
-                `Successfully processed ${importCount} employee profiles (${duplicateCount} existing records updated).`
+                "Import Success", 
+                `Successfully processed ${importCount} employee profiles! (${duplicateCount} existing database profiles were updated).`
             );
 
         } catch (error) {
-            console.error("Excel processing crash:", error);
-            showSystemNotification("Processing Error", "Failed to parse file. Make sure it isn't corrupted.", false);
+            console.error("Excel processing crash detail:", error);
+            showSystemNotification(
+                "Processing Failed", 
+                `An error occurred while parsing the spreadsheet: ${error.message}`, 
+                false
+            );
         }
     };
 
