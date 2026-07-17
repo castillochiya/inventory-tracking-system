@@ -88,6 +88,13 @@
         .report-header h3 { margin: 0; }
 
         .btn-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.5); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: -1px; }
+
+        /* Type-to-search employee picker (release flow) */
+        .employee-search-results { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: white; border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px; max-height: 180px; overflow-y: auto; text-align: left; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .employee-search-item { padding: 8px 12px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+        .employee-search-item:last-child { border-bottom: none; }
+        .employee-search-item:hover { background: #e7f1ff; }
+        .employee-search-empty { padding: 8px 12px; font-size: 13px; color: #999; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #555; }
     </style>
@@ -271,8 +278,13 @@
         </p>
         
         <p style="margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Select Employee:</p>
-        <select id="employeeDropdown" onchange="handleEmployeeSelect()">
-            </select>
+        <div style="position:relative;">
+            <input type="text" id="employeeSearchInput" placeholder="Type employee name or ID..." autocomplete="off"
+                   oninput="handleEmployeeSearchInput()"
+                   onfocus="handleEmployeeSearchInput()"
+                   onblur="setTimeout(hideEmployeeSearchResults, 150)">
+            <div id="employeeSearchResults" class="employee-search-results"></div>
+        </div>
         
         <p style="margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Choose Release Date:</p>
         <input type="date" id="releaseDate">
@@ -327,8 +339,44 @@
         <button id="notifCloseBtn" style="width: 100%; background-color: #007bff;" onclick="closeModals()">Acknowledge</button>
     </div>
 </div>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+  import { getDatabase, ref, get as fbGet, set as fbSet, remove as fbRemove } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
 
-<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAavlVgxwq5sWosCdw3PscBPN9fUkqjvwU",
+    authDomain: "cvlis-inventory.firebaseapp.com",
+    databaseURL: "https://cvlis-inventory-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "cvlis-inventory",
+    storageBucket: "cvlis-inventory.firebasestorage.app",
+    messagingSenderId: "186057288318",
+    appId: "1:186057288318:web:321e5ff5f8b2d9f41c462f"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  // Same contract as Claude.ai's window.storage: get/set/delete/list
+  window.storage = {
+    async get(key) {
+      const snap = await fbGet(ref(db, "cvlis_kv/" + key));
+      if (!snap.exists()) throw new Error("Key not found: " + key);
+      return { key, value: snap.val(), shared: true };
+    },
+    async set(key, value) {
+      await fbSet(ref(db, "cvlis_kv/" + key), value);
+      return { key, value, shared: true };
+    },
+    async delete(key) {
+      await fbRemove(ref(db, "cvlis_kv/" + key));
+      return { key, deleted: true, shared: true };
+    },
+    async list(prefix) {
+      return { keys: [], prefix, shared: true };
+    }
+  };
+</script>
+<script defer>
 // ============================================================
 // SEED DATA
 // ============================================================
@@ -351,12 +399,11 @@ let transactionLogs = { rev: 0, items: [] };
 
 const STORAGE_KEYS = { inventory: "cvlis_inventory", employees: "cvlis_employees", logs: "cvlis_logs" };
 
-// `window.storage` only exists inside Claude.ai's artifact sandbox. When this
-// file is hosted elsewhere (GitHub Pages, opened locally, etc.) we fall back
+// `window.storage` is normally set by the Firebase module script above.
+// If that script failed to load (offline, blocked CDN, etc.) we fall back
 // to plain localStorage so the app still works — note this fallback is
-// per-browser only, so the "shared across devices" behavior described in the
-// UI requires running inside a Claude.ai artifact, or wiring up your own
-// backend (e.g. Firebase, Supabase) if you want real cross-device sync here.
+// per-browser only, so cross-device sync requires the Firebase script to
+// have loaded successfully.
 if (!window.storage) {
     console.warn("window.storage not found — falling back to localStorage (single browser only, no cross-device sync).");
     window.storage = {
@@ -535,12 +582,28 @@ async function mutateShared(key, mutatorFn, maxRetries = 6) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Formats a Date object, or the yyyy-mm-dd string an <input type="date">
+// produces, as mm-dd-yyyy. Parsing the yyyy-mm-dd string manually (instead
+// of `new Date(str)`) avoids a timezone shift moving the date back a day.
+function formatDateMMDDYYYY(input) {
+    let year, month, day;
+    if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+        [year, month, day] = input.split("-");
+    } else {
+        const d = (input instanceof Date) ? input : new Date(input);
+        year = d.getFullYear();
+        month = String(d.getMonth() + 1).padStart(2, "0");
+        day = String(d.getDate()).padStart(2, "0");
+    }
+    return `${month}-${day}-${year}`;
+}
+
 async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshEmployees() { const r = await safeGet(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = JSON.parse(r.value); } catch(e){} }
 
 async function appendLog(itemId, action, qty, employeeLabel, authorizedDate) {
-    const timestamp = new Date().toLocaleString();
+    const timestamp = new Date().toLocaleTimeString();
     try {
         await mutateShared(STORAGE_KEYS.logs, (latest) => {
             if (!Array.isArray(latest.items)) latest.items = [];
@@ -812,7 +875,7 @@ async function createNewItemType() {
             latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
             return latest;
         });
-        await appendLog(itemId, "ADD", 0, "System Initialization", new Date().toLocaleDateString());
+        await appendLog(itemId, "ADD", 0, "System Initialization", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
 
@@ -835,7 +898,7 @@ async function deleteItem(itemId) {
             delete latest.items[itemId];
             return latest;
         });
-        await appendLog(itemId, "DELETE", removedQty, "System Management", new Date().toLocaleDateString());
+        await appendLog(itemId, "DELETE", removedQty, "System Management", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
     } catch (e) {
@@ -1095,7 +1158,7 @@ async function submitAdd() {
             latest.items[itemId].quantity += qty;
             return latest;
         });
-        await appendLog(itemId, "ADD", qty, "N/A", new Date().toLocaleDateString());
+        await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
         showSystemNotification("Restock Success", `Successfully inbound-logged +${qty} units to inventory.`);
@@ -1126,34 +1189,66 @@ async function openEmployeeSelectionModal() {
 
     pendingReleaseQty = qty;
 
-    const dropdown = document.getElementById("employeeDropdown");
-    dropdown.innerHTML = '<option value="" disabled selected>-- Choose an Employee --</option>';
-    for (let empId in employees.items) {
-        dropdown.innerHTML += `<option value="${empId}">${employees.items[empId].name} (${empId})</option>`;
-    }
+    activeEmployeeId = "";
+    document.getElementById("employeeSearchInput").value = "";
+    document.getElementById("employeeSearchResults").innerHTML = "";
+    document.getElementById("employeeSearchResults").style.display = "none";
 
     document.getElementById("releaseDate").valueAsDate = new Date();
     document.getElementById("finalReleaseBtn").disabled = true;
     openModal("employeeModal");
 }
 
-function handleEmployeeSelect() {
-    let dropdown = document.getElementById("employeeDropdown");
-    let submitBtn = document.getElementById("finalReleaseBtn");
+function hideEmployeeSearchResults() {
+    const resultsDiv = document.getElementById("employeeSearchResults");
+    if (resultsDiv) resultsDiv.style.display = "none";
+}
 
-    if (dropdown.value) {
-        activeEmployeeId = dropdown.value;
-        submitBtn.disabled = false;
-    } else {
-        submitBtn.disabled = true;
+function handleEmployeeSearchInput() {
+    const query = document.getElementById("employeeSearchInput").value.trim().toLowerCase();
+    const resultsDiv = document.getElementById("employeeSearchResults");
+    const submitBtn = document.getElementById("finalReleaseBtn");
+
+    // Typing again invalidates whatever was previously picked, until a match is clicked
+    activeEmployeeId = "";
+    submitBtn.disabled = true;
+
+    if (!query) {
+        resultsDiv.innerHTML = "";
+        resultsDiv.style.display = "none";
+        return;
     }
+
+    const matches = Object.entries(employees.items).filter(([empId, emp]) =>
+        empId.toLowerCase().includes(query) || (emp.name || "").toLowerCase().includes(query)
+    ).slice(0, 8);
+
+    if (matches.length === 0) {
+        resultsDiv.innerHTML = `<div class="employee-search-empty">No matching employees</div>`;
+        resultsDiv.style.display = "block";
+        return;
+    }
+
+    resultsDiv.innerHTML = matches.map(([empId, emp]) =>
+        `<div class="employee-search-item" onmousedown="selectEmployeeFromSearch('${empId}')">${emp.name} <span style="color:#999;">(${empId})</span></div>`
+    ).join("");
+    resultsDiv.style.display = "block";
+}
+
+function selectEmployeeFromSearch(empId) {
+    const emp = employees.items[empId];
+    if (!emp) return;
+    activeEmployeeId = empId;
+    document.getElementById("employeeSearchInput").value = `${emp.name} (${empId})`;
+    hideEmployeeSearchResults();
+    document.getElementById("finalReleaseBtn").disabled = false;
 }
 
 async function submitRelease() {
     const qty = pendingReleaseQty;
     const itemId = activeItemId;
     const empId = activeEmployeeId;
-    const authDate = document.getElementById("releaseDate").value;
+    const authDate = formatDateMMDDYYYY(document.getElementById("releaseDate").value);
     const empLabel = employees.items[empId] ? employees.items[empId].name : empId;
 
     setBtnBusy("finalReleaseBtn", true, "Processing…", "Confirm & Deduct Stock");
@@ -1297,6 +1392,9 @@ function closeModals() {
     document.getElementById("finalReleaseBtn").disabled = true;
     document.getElementById("addQty").value = 1;
     document.getElementById("releaseQty").value = 1;
+    document.getElementById("employeeSearchInput").value = "";
+    document.getElementById("employeeSearchResults").innerHTML = "";
+    document.getElementById("employeeSearchResults").style.display = "none";
     activeEmployeeId = "";
     editingOldEmpId = "";
     editingItemId = "";
