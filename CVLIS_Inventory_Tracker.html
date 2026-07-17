@@ -88,6 +88,13 @@
         .report-header h3 { margin: 0; }
 
         .btn-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.5); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: -1px; }
+
+        /* Type-to-search employee picker (release flow) */
+        .employee-search-results { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: white; border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px; max-height: 180px; overflow-y: auto; text-align: left; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .employee-search-item { padding: 8px 12px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+        .employee-search-item:last-child { border-bottom: none; }
+        .employee-search-item:hover { background: #e7f1ff; }
+        .employee-search-empty { padding: 8px 12px; font-size: 13px; color: #999; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #555; }
     </style>
@@ -120,7 +127,7 @@
                     <option value="set">set</option>
                     <option value="unit">unit</option>
                     <option value="pack">pack</option>
-                    <option value="kg">kg</option>
+                    <option value="ream">ream</option>
                 </select>
                 <button type="button" id="registerItemBtn" style="padding: 8px 15px; margin: 0;" onclick="createNewItemType()">Register Item</button>
             </div>
@@ -128,13 +135,24 @@
 
         <div class="dashboard-grid">
             <div class="scanner-section">
-                <h3>📷 Live QR Feed</h3>
+                <h3>📷 Scan QR Code</h3>
                 <div id="videoContainer">
                     <video id="preview" autoplay playsinline muted></video>
                     <canvas id="qrCanvas" style="display:none;"></canvas>
                 </div>
-                <button id="switchCamBtn" style="background: #34495e; font-size: 12px; padding: 6px 12px; margin-top: 10px;" onclick="cycleCameras()">🔄 Switch Camera Lens</button>
-                <div id="scannerStatus" class="status-badge">🔄 Initializing...</div>
+                <div id="scannerStatus" class="status-badge">🔄 Tap Start Camera to scan</div>
+                <div>
+                    <button id="startScannerBtn" type="button" style="margin-top:10px;" onclick="initCameraSystem()">▶️ Start Camera</button>
+                    <button id="stopScannerBtn" type="button" style="margin-top:10px; background:#6c757d; display:none;" onclick="stopScanner()">⏹️ Stop Camera</button>
+                </div>
+                <p style="font-size:11px; color:#888; margin:8px 0 0 0;">Tip: hold steady, fill the frame with the code, and make sure it's well-lit for best in-page detection.</p>
+                <div style="margin-top:15px; width:100%; max-width:320px; text-align:left;">
+                    <p style="font-size:12px; color:#666; margin-bottom:6px; text-align:center;">Camera unavailable or not scanning? Enter the item code manually:</p>
+                    <div style="display:flex; gap:6px;">
+                        <input type="text" id="manualCodeInput" placeholder="e.g., ITEM001" style="flex:1; padding:8px; border:1px solid #ccc; border-radius:4px; text-transform:uppercase;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); submitManualCode(); }">
+                        <button type="button" style="margin:0; padding:8px 14px;" onclick="submitManualCode()">Go</button>
+                    </div>
+                </div>
             </div>
 
             <div>
@@ -142,15 +160,15 @@
                 <div class="table-container">
                     <table>
                         <thead>
-                            <tr><th>Item ID</th><th>Item Name / Unit</th><th>In Stock</th><th style="width: 70px; text-align: center;">Action</th></tr>
+                            <tr><th>Item ID</th><th>Item Description / Unit</th><th>In Stock</th><th style="width: 90px; text-align: center;">Action</th></tr>
                         </thead>
                         <tbody id="inventoryTable"></tbody>
                     </table>
                 </div>
-                <button style="margin-top:10px; background:#6c757d; font-size:12px; padding:6px 12px;" onclick="resetDatabase()">🔄 Reset Shared Demo Data</button>
             </div>
         </div>
     </div>
+
 
     <div id="tab-employees" class="tab-content">
         <div class="management-box">
@@ -176,7 +194,18 @@
             </div>
         </div>
 
-        <h3>👥 Registered Personnel Registry</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+            <h3 style="margin:0;">👥 Registered Personnel Registry</h3>
+            <div style="display:flex; align-items:center; gap:6px;">
+                <label for="employeeSortSelect" style="font-size:13px; color:#555; font-weight:bold;">Sort by:</label>
+                <select id="employeeSortSelect" onchange="setEmployeeSort(this.value)" style="padding:6px 10px; border-radius:6px; border:1px solid #ccc; background:white; font-size:13px;">
+                    <option value="numAsc">Employee # (Lowest → Highest)</option>
+                    <option value="numDesc">Employee # (Highest → Lowest)</option>
+                    <option value="nameAsc">Employee Name (A → Z)</option>
+                    <option value="nameDesc">Employee Name (Z → A)</option>
+                </select>
+            </div>
+        </div>
         <div class="table-container" style="height: 350px;">
             <table>
                 <thead>
@@ -189,15 +218,25 @@
 
     <div id="tab-report" class="tab-content">
         <div class="report-header">
-            <h3 style="margin: 0;">📜 Transaction Audit Log (Tracking System)</h3>
+            <h3 style="margin: 0;">📄 Requisition and Issuance Slip (RIS)</h3>
             <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
         </div>
+        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Auto-filled whenever an item is released to an employee.</p>
         <div class="table-container" style="height: 400px;">
             <table>
                 <thead>
-                    <tr><th>Timestamp</th><th>Item ID</th><th>Action</th><th>Qty</th><th>Employee / Recipient</th><th>Date Authorized</th></tr>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Date Requested/ Received</th>
+                        <th>Quantity</th>
+                        <th>Unit</th>
+                        <th>Item Description</th>
+                        <th>Yes</th>
+                        <th>No</th>
+                        <th>Name and Signature Requested/ Received By</th>
+                    </tr>
                 </thead>
-                <tbody id="logTable"></tbody>
+                <tbody id="risTable"></tbody>
             </table>
         </div>
     </div>
@@ -239,8 +278,13 @@
         </p>
         
         <p style="margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Select Employee:</p>
-        <select id="employeeDropdown" onchange="handleEmployeeSelect()">
-            </select>
+        <div style="position:relative;">
+            <input type="text" id="employeeSearchInput" placeholder="Type employee name or ID..." autocomplete="off"
+                   oninput="handleEmployeeSearchInput()"
+                   onfocus="handleEmployeeSearchInput()"
+                   onblur="setTimeout(hideEmployeeSearchResults, 150)">
+            <div id="employeeSearchResults" class="employee-search-results"></div>
+        </div>
         
         <p style="margin-top: 15px; margin-bottom: 5px; font-weight: bold; color: #555; text-align: left; padding-left: 10px;">Choose Release Date:</p>
         <input type="date" id="releaseDate">
@@ -270,6 +314,23 @@
     </div>
 </div>
 
+<div id="editItemModal" class="modal">
+    <div class="modal-content">
+        <h3 style="color: #ffc107; margin-bottom: 10px;">✏️ Edit Item Description</h3>
+        <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Update this item's description below.</p>
+
+        <label for="editItemIdLabel">Item ID:</label>
+        <input type="text" id="editItemIdLabel" disabled style="background:#eee;">
+
+        <label for="editItemNameInput">Item Description:</label>
+        <input type="text" id="editItemNameInput">
+
+        <br><br>
+        <button id="saveItemEditBtn" style="width: 100%; background-color: #28a745;" onclick="submitItemEdit()">Save Changes</button>
+        <button style="background:#6c757d; width: 100%; margin-top: 5px;" onclick="closeModals()">Cancel Changes</button>
+    </div>
+</div>
+
 <div id="notificationModal" class="modal">
     <div class="modal-content">
         <span id="notifIcon" class="notif-icon"></span>
@@ -278,15 +339,52 @@
         <button id="notifCloseBtn" style="width: 100%; background-color: #007bff;" onclick="closeModals()">Acknowledge</button>
     </div>
 </div>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+  import { getDatabase, ref, get as fbGet, set as fbSet, remove as fbRemove } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
 
-<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyAavlVgxwq5sWosCdw3PscBPN9fUkqjvwU",
+    authDomain: "cvlis-inventory.firebaseapp.com",
+    databaseURL: "https://cvlis-inventory-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "cvlis-inventory",
+    storageBucket: "cvlis-inventory.firebasestorage.app",
+    messagingSenderId: "186057288318",
+    appId: "1:186057288318:web:321e5ff5f8b2d9f41c462f"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+
+  // Same contract as Claude.ai's window.storage: get/set/delete/list
+  window.storage = {
+    async get(key) {
+      const snap = await fbGet(ref(db, "cvlis_kv/" + key));
+      if (!snap.exists()) throw new Error("Key not found: " + key);
+      return { key, value: snap.val(), shared: true };
+    },
+    async set(key, value) {
+      await fbSet(ref(db, "cvlis_kv/" + key), value);
+      return { key, value, shared: true };
+    },
+    async delete(key) {
+      await fbRemove(ref(db, "cvlis_kv/" + key));
+      return { key, deleted: true, shared: true };
+    },
+    async list(prefix) {
+      return { keys: [], prefix, shared: true };
+    }
+  };
+</script>
+<script defer>
 // ============================================================
 // SEED DATA
 // ============================================================
 const defaultInventoryItems = {
     "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12 },
     "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0 },
-    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5 }
+    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5 },
+    "ITEM004": { name: "Bond Paper A4", unit: "box", quantity: 20 }
 };
 const defaultEmployeeItems = {
     "EMP01": { name: "Juan Dela Cruz", position: "Warehouse Staff" },
@@ -300,6 +398,42 @@ let employees = { rev: 0, items: {} };
 let transactionLogs = { rev: 0, items: [] };
 
 const STORAGE_KEYS = { inventory: "cvlis_inventory", employees: "cvlis_employees", logs: "cvlis_logs" };
+
+// `window.storage` is normally set by the Firebase module script above.
+// If that script failed to load (offline, blocked CDN, etc.) we fall back
+// to plain localStorage so the app still works — note this fallback is
+// per-browser only, so cross-device sync requires the Firebase script to
+// have loaded successfully.
+if (!window.storage) {
+    console.warn("window.storage not found — falling back to localStorage (single browser only, no cross-device sync).");
+    window.storage = {
+        async get(key) {
+            const raw = localStorage.getItem("cvlis_fallback_" + key);
+            if (raw === null) throw new Error("Key not found: " + key);
+            return { key, value: raw, shared: true };
+        },
+        async set(key, value) {
+            localStorage.setItem("cvlis_fallback_" + key, value);
+            return { key, value, shared: true };
+        },
+        async delete(key) {
+            const existed = localStorage.getItem("cvlis_fallback_" + key) !== null;
+            localStorage.removeItem("cvlis_fallback_" + key);
+            return { key, deleted: existed, shared: true };
+        },
+        async list(prefix) {
+            const keys = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith("cvlis_fallback_")) {
+                    const stripped = k.slice("cvlis_fallback_".length);
+                    if (!prefix || stripped.startsWith(prefix)) keys.push(stripped);
+                }
+            }
+            return { keys, prefix, shared: true };
+        }
+    };
+}
 const MAX_LOG_ENTRIES = 500;
 const POLL_INTERVAL_MS = 5000;
 
@@ -307,7 +441,29 @@ let activeItemId = "";
 let pendingReleaseQty = 0;
 let activeEmployeeId = "";
 let editingOldEmpId = "";
+let editingItemId = "";
 let dataReady = false;
+let employeeSortMode = "numAsc"; // numAsc | numDesc | nameAsc | nameDesc
+
+function setEmployeeSort(mode) {
+    employeeSortMode = mode;
+    renderTables();
+}
+
+function getSortedEmployeeEntries() {
+    const entries = Object.entries(employees.items); // [ [empId, {name, position}], ... ]
+    const numCollator = (a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" });
+    const nameCollator = (a, b) => (a[1].name || "").localeCompare(b[1].name || "", undefined, { sensitivity: "base" });
+
+    switch (employeeSortMode) {
+        case "numDesc": entries.sort((a, b) => numCollator(b, a)); break;
+        case "nameAsc": entries.sort(nameCollator); break;
+        case "nameDesc": entries.sort((a, b) => nameCollator(b, a)); break;
+        case "numAsc":
+        default: entries.sort(numCollator); break;
+    }
+    return entries;
+}
 
 // ============================================================
 // SHARED STORAGE LAYER
@@ -356,13 +512,23 @@ function normalizeEmployeeShape(empData) {
     return empData;
 }
 
+// Older versions of this tracker may not have a unit set on every record.
+// Default any such records to "pcs" so the table always has something to show.
+function normalizeInventoryShape(invData) {
+    for (let id in invData.items) {
+        const item = invData.items[id];
+        if (!item.unit) item.unit = "pcs";
+    }
+    return invData;
+}
+
 async function loadAllData() {
     const [inv, emp, logs] = await Promise.all([
         loadOrSeed(STORAGE_KEYS.inventory, defaultInventoryItems),
         loadOrSeed(STORAGE_KEYS.employees, defaultEmployeeItems),
         loadOrSeed(STORAGE_KEYS.logs, [])
     ]);
-    inventory = inv;
+    inventory = normalizeInventoryShape(inv);
     employees = normalizeEmployeeShape(emp);
     transactionLogs = logs;
     dataReady = true;
@@ -416,12 +582,28 @@ async function mutateShared(key, mutatorFn, maxRetries = 6) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = JSON.parse(r.value); } catch(e){} }
+// Formats a Date object, or the yyyy-mm-dd string an <input type="date">
+// produces, as mm-dd-yyyy. Parsing the yyyy-mm-dd string manually (instead
+// of `new Date(str)`) avoids a timezone shift moving the date back a day.
+function formatDateMMDDYYYY(input) {
+    let year, month, day;
+    if (typeof input === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input)) {
+        [year, month, day] = input.split("-");
+    } else {
+        const d = (input instanceof Date) ? input : new Date(input);
+        year = d.getFullYear();
+        month = String(d.getMonth() + 1).padStart(2, "0");
+        day = String(d.getDate()).padStart(2, "0");
+    }
+    return `${month}-${day}-${year}`;
+}
+
+async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshEmployees() { const r = await safeGet(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(JSON.parse(r.value)); } catch(e){} }
 async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = JSON.parse(r.value); } catch(e){} }
 
 async function appendLog(itemId, action, qty, employeeLabel, authorizedDate) {
-    const timestamp = new Date().toLocaleString();
+    const timestamp = new Date().toLocaleTimeString();
     try {
         await mutateShared(STORAGE_KEYS.logs, (latest) => {
             if (!Array.isArray(latest.items)) latest.items = [];
@@ -461,18 +643,19 @@ function setSyncStatus(state, text) {
 
 // ============================================================
 // QR SCANNING (jsQR — actively maintained, works via getUserMedia +
-// canvas frame sampling, no deprecated camera-enumeration APIs)
+// canvas frame sampling). Always requests the rear/environment-facing
+// camera — no lens-switching option, works uniformly on iOS and Android.
+// Camera only starts on an explicit "Start Camera" tap (not on page load):
+// getUserMedia requires a real user gesture in most embedded/sandboxed
+// contexts (like this artifact preview), so auto-starting it silently
+// failed. A manual code-entry fallback is also provided in case the
+// camera is genuinely unavailable (no permission, no HTTPS, no device).
 // ============================================================
 let videoElement, canvasElement, canvasCtx;
-let availableCameras = [];
-let currentCamIndex = 0;
 let currentStream = null;
-let iosToggleCount = 0;
 let scanning = false;
 let lastScanCode = "";
 let lastScanTime = 0;
-
-const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 function stopActiveStreams() {
     scanning = false;
@@ -482,71 +665,114 @@ function stopActiveStreams() {
     }
 }
 
-async function initCameraSystem() {
-    updateBadgeDisplay("🔄 Initializing System Cameras...", "#007bff");
-    stopActiveStreams();
-    try {
-        // Request permission first so device labels are populated for the back-camera heuristic
-        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        tempStream.getTracks().forEach(t => t.stop());
-
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        availableCameras = devices.filter(d => d.kind === "videoinput");
-
-        let targetIndex = 0;
-        const backKeywords = ['back', 'rear', 'environment', 'main'];
-        for (let i = 0; i < availableCameras.length; i++) {
-            const label = (availableCameras[i].label || '').toLowerCase();
-            if (backKeywords.some(k => label.includes(k))) { targetIndex = i; break; }
-        }
-        if (targetIndex === 0 && availableCameras.length > 1) targetIndex = availableCameras.length - 1;
-        currentCamIndex = targetIndex;
-
-        await startSelectedCamera();
-    } catch (e) {
-        console.error(e);
-        updateBadgeDisplay("🔴 Permissions Blocked / Requires HTTPS", "#dc3545");
+function setScannerButtons(isRunning) {
+    const startBtn = document.getElementById("startScannerBtn");
+    const stopBtn = document.getElementById("stopScannerBtn");
+    if (startBtn) {
+        startBtn.style.display = isRunning ? "none" : "inline-block";
+        startBtn.disabled = false;
     }
+    if (stopBtn) stopBtn.style.display = isRunning ? "inline-block" : "none";
 }
 
-async function startSelectedCamera() {
+async function attachCameraStream(stream, badgeText) {
     videoElement = videoElement || document.getElementById('preview');
     canvasElement = canvasElement || document.getElementById('qrCanvas');
     canvasCtx = canvasCtx || canvasElement.getContext('2d', { willReadFrequently: true });
 
-    const targetCamera = availableCameras[currentCamIndex];
-    let constraints;
-    if (targetCamera && targetCamera.deviceId) {
-        constraints = { video: { deviceId: { exact: targetCamera.deviceId } }, audio: false };
-    } else if (isIOS) {
-        constraints = { video: { facingMode: iosToggleCount % 2 === 0 ? { exact: "environment" } : "user" }, audio: false };
-    } else {
-        constraints = { video: { facingMode: "environment" }, audio: false };
+    currentStream = stream;
+    videoElement.srcObject = stream;
+    videoElement.setAttribute("playsinline", true);
+    await videoElement.play();
+
+    // The native camera app auto-focuses continuously and uses a full-res
+    // sensor feed; getUserMedia streams default to a lower resolution and a
+    // fixed focal point, which is why in-page scanning can miss codes that
+    // the phone's own scanner reads instantly. Nudge the track towards
+    // continuous autofocus where the browser supports it (best-effort —
+    // most desktop webcams and some phones don't expose this control).
+    const [track] = stream.getVideoTracks();
+    if (track && typeof track.getCapabilities === "function") {
+        try {
+            const caps = track.getCapabilities();
+            const advanced = {};
+            if (caps.focusMode && caps.focusMode.includes("continuous")) advanced.focusMode = "continuous";
+            if (caps.exposureMode && caps.exposureMode.includes("continuous")) advanced.exposureMode = "continuous";
+            if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] });
+        } catch (e) { /* not supported on this device/browser, ignore */ }
     }
 
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        currentStream = stream;
-        videoElement.srcObject = stream;
-        videoElement.setAttribute("playsinline", true);
-        await videoElement.play();
-        scanning = true;
-        requestAnimationFrame(scanTick);
-        updateBadgeDisplay("🟢 Camera Active: Scan an Item", "#28a745");
-    } catch (err) {
-        console.warn("Preferred camera constraints failed, falling back...", err);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-            currentStream = stream;
-            videoElement.srcObject = stream;
-            await videoElement.play();
-            scanning = true;
-            requestAnimationFrame(scanTick);
-            updateBadgeDisplay("🟢 Camera Active (Fallback)", "#28a745");
-        } catch (e2) {
-            updateBadgeDisplay("🔴 Stream Busy/Error", "#dc3545");
-        }
+    scanning = true;
+    requestAnimationFrame(scanTick);
+    updateBadgeDisplay(badgeText, "#28a745");
+    setScannerButtons(true);
+}
+
+async function initCameraSystem() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        updateBadgeDisplay("🔴 Camera API unavailable in this browser/context", "#dc3545");
+        setScannerButtons(false);
+        return;
     }
+
+    const startBtn = document.getElementById("startScannerBtn");
+    if (startBtn) startBtn.disabled = true;
+    updateBadgeDisplay("🔄 Requesting camera access...", "#007bff");
+    stopActiveStreams();
+
+    // Request a higher-resolution feed than the browser default — jsQR
+    // needs enough pixels across the code to decode it, and the default
+    // getUserMedia resolution is often much lower than what the native
+    // camera app captures.
+    const highRes = { width: { ideal: 1920 }, height: { ideal: 1080 } };
+
+    // Strictly require the rear/environment-facing lens first (works on iOS Safari and Android Chrome).
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" }, ...highRes }, audio: false });
+        await attachCameraStream(stream, "🟢 Rear Camera Active: Scan an Item");
+        return;
+    } catch (err) {
+        console.warn("Exact rear-camera constraint failed, trying relaxed constraint...", err);
+    }
+
+    // Relaxed fallback: prefer environment-facing but allow the browser to pick the closest match
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", ...highRes }, audio: false });
+        await attachCameraStream(stream, "🟢 Rear Camera Active (Fallback)");
+        return;
+    } catch (err) {
+        console.warn("Relaxed rear-camera constraint failed, trying any camera...", err);
+    }
+
+    // Last resort: devices with only one camera (e.g. some laptops/desktops) — no rear lens to prefer
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { ...highRes }, audio: false });
+        await attachCameraStream(stream, "🟢 Camera Active (No Rear Lens Found)");
+    } catch (err) {
+        console.error(err);
+        let reason = "Camera unavailable";
+        if (err && err.name === "NotAllowedError") reason = "Camera permission denied";
+        else if (err && err.name === "NotFoundError") reason = "No camera found on this device";
+        else if (err && err.name === "NotReadableError") reason = "Camera already in use by another app";
+        else if (location.protocol !== "https:" && location.hostname !== "localhost") reason = "Camera requires HTTPS";
+        updateBadgeDisplay(`🔴 ${reason} — use manual entry below`, "#dc3545");
+        setScannerButtons(false);
+    }
+}
+
+function stopScanner() {
+    stopActiveStreams();
+    updateBadgeDisplay("⏹️ Camera stopped", "#6c757d");
+    setScannerButtons(false);
+}
+
+function submitManualCode() {
+    const input = document.getElementById("manualCodeInput");
+    if (!input) return;
+    const code = input.value.trim().toUpperCase();
+    if (!code) return;
+    input.value = "";
+    handleItemScan(code);
 }
 
 function scanTick() {
@@ -557,7 +783,10 @@ function scanTick() {
         canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
         try {
             const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+            // "attemptBoth" also tries an inverted read — some QR codes are
+            // printed light-on-dark, and native camera apps handle both
+            // automatically while "dontInvert" alone would miss them.
+            const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
             if (code && code.data) {
                 const now = Date.now();
                 if (code.data !== lastScanCode || now - lastScanTime > 3000) {
@@ -570,19 +799,6 @@ function scanTick() {
     }
     requestAnimationFrame(scanTick);
 }
-
-function cycleCameras() {
-    updateBadgeDisplay("🔄 Switching Lens...", "#34495e");
-    stopActiveStreams();
-    if (availableCameras.length > 1) {
-        currentCamIndex = (currentCamIndex + 1) % availableCameras.length;
-    } else {
-        iosToggleCount++;
-    }
-    startSelectedCamera();
-}
-
-initCameraSystem();
 
 function handleRawScan(content) {
     let cleanCode = content.trim().toUpperCase();
@@ -644,7 +860,11 @@ async function createNewItemType() {
     let itemUnit = unitInput.value;
 
     if (!itemId || !itemName) {
-        showSystemNotification("Registration Void", "Please fill out both the Item ID and Item Name fields.", false);
+        showSystemNotification("Registration Void", "Please fill out both the Item ID and Item Description fields.", false);
+        return;
+    }
+    if (inventory.items[itemId]) {
+        showSystemNotification("Item Conflict", `Item ID "${itemId}" already exists in the system registry.`, false);
         return;
     }
 
@@ -655,10 +875,12 @@ async function createNewItemType() {
             latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
             return latest;
         });
-        await appendLog(itemId, "ADD", 0, "System Initialization", new Date().toLocaleDateString());
+        await appendLog(itemId, "ADD", 0, "System Initialization", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
-        idInput.value = ""; nameInput.value = "";
+
+        idInput.value = "";
+        nameInput.value = "";
         showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units.`);
     } catch (e) {
         showSystemNotification("Item Conflict", e.message, false);
@@ -676,13 +898,47 @@ async function deleteItem(itemId) {
             delete latest.items[itemId];
             return latest;
         });
-        await appendLog(itemId, "DELETE", removedQty, "System Management", new Date().toLocaleDateString());
+        await appendLog(itemId, "DELETE", removedQty, "System Management", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
     } catch (e) {
         showSystemNotification("Delete Failed", e.message, false);
         await refreshInventory();
         renderTables();
+    }
+}
+
+function editItem(itemId) {
+    if (!inventory.items[itemId]) return;
+    editingItemId = itemId;
+    document.getElementById("editItemIdLabel").value = itemId;
+    document.getElementById("editItemNameInput").value = inventory.items[itemId].name;
+    openModal("editItemModal");
+}
+
+async function submitItemEdit() {
+    let newName = document.getElementById("editItemNameInput").value.trim();
+    if (!newName) {
+        showSystemNotification("Blank Field", "Item description cannot be empty.", false);
+        return;
+    }
+
+    const itemId = editingItemId;
+    setBtnBusy("saveItemEditBtn", true, "Saving…", "Save Changes");
+    try {
+        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
+            if (!latest.items[itemId]) throw new Error("Item no longer exists in the registry.");
+            latest.items[itemId].name = newName;
+            return latest;
+        });
+        await refreshInventory();
+        renderTables();
+        closeModals();
+        showSystemNotification("Update Success", `"${itemId}" description updated successfully.`);
+    } catch (e) {
+        showSystemNotification("Update Failed", e.message, false);
+    } finally {
+        setBtnBusy("saveItemEditBtn", false, "", "Save Changes");
     }
 }
 
@@ -902,7 +1158,7 @@ async function submitAdd() {
             latest.items[itemId].quantity += qty;
             return latest;
         });
-        await appendLog(itemId, "ADD", qty, "N/A", new Date().toLocaleDateString());
+        await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
         showSystemNotification("Restock Success", `Successfully inbound-logged +${qty} units to inventory.`);
@@ -933,34 +1189,66 @@ async function openEmployeeSelectionModal() {
 
     pendingReleaseQty = qty;
 
-    const dropdown = document.getElementById("employeeDropdown");
-    dropdown.innerHTML = '<option value="" disabled selected>-- Choose an Employee --</option>';
-    for (let empId in employees.items) {
-        dropdown.innerHTML += `<option value="${empId}">${employees.items[empId].name} (${empId})</option>`;
-    }
+    activeEmployeeId = "";
+    document.getElementById("employeeSearchInput").value = "";
+    document.getElementById("employeeSearchResults").innerHTML = "";
+    document.getElementById("employeeSearchResults").style.display = "none";
 
     document.getElementById("releaseDate").valueAsDate = new Date();
     document.getElementById("finalReleaseBtn").disabled = true;
     openModal("employeeModal");
 }
 
-function handleEmployeeSelect() {
-    let dropdown = document.getElementById("employeeDropdown");
-    let submitBtn = document.getElementById("finalReleaseBtn");
+function hideEmployeeSearchResults() {
+    const resultsDiv = document.getElementById("employeeSearchResults");
+    if (resultsDiv) resultsDiv.style.display = "none";
+}
 
-    if (dropdown.value) {
-        activeEmployeeId = dropdown.value;
-        submitBtn.disabled = false;
-    } else {
-        submitBtn.disabled = true;
+function handleEmployeeSearchInput() {
+    const query = document.getElementById("employeeSearchInput").value.trim().toLowerCase();
+    const resultsDiv = document.getElementById("employeeSearchResults");
+    const submitBtn = document.getElementById("finalReleaseBtn");
+
+    // Typing again invalidates whatever was previously picked, until a match is clicked
+    activeEmployeeId = "";
+    submitBtn.disabled = true;
+
+    if (!query) {
+        resultsDiv.innerHTML = "";
+        resultsDiv.style.display = "none";
+        return;
     }
+
+    const matches = Object.entries(employees.items).filter(([empId, emp]) =>
+        empId.toLowerCase().includes(query) || (emp.name || "").toLowerCase().includes(query)
+    ).slice(0, 8);
+
+    if (matches.length === 0) {
+        resultsDiv.innerHTML = `<div class="employee-search-empty">No matching employees</div>`;
+        resultsDiv.style.display = "block";
+        return;
+    }
+
+    resultsDiv.innerHTML = matches.map(([empId, emp]) =>
+        `<div class="employee-search-item" onmousedown="selectEmployeeFromSearch('${empId}')">${emp.name} <span style="color:#999;">(${empId})</span></div>`
+    ).join("");
+    resultsDiv.style.display = "block";
+}
+
+function selectEmployeeFromSearch(empId) {
+    const emp = employees.items[empId];
+    if (!emp) return;
+    activeEmployeeId = empId;
+    document.getElementById("employeeSearchInput").value = `${emp.name} (${empId})`;
+    hideEmployeeSearchResults();
+    document.getElementById("finalReleaseBtn").disabled = false;
 }
 
 async function submitRelease() {
     const qty = pendingReleaseQty;
     const itemId = activeItemId;
     const empId = activeEmployeeId;
-    const authDate = document.getElementById("releaseDate").value;
+    const authDate = formatDateMMDDYYYY(document.getElementById("releaseDate").value);
     const empLabel = employees.items[empId] ? employees.items[empId].name : empId;
 
     setBtnBusy("finalReleaseBtn", true, "Processing…", "Confirm & Deduct Stock");
@@ -1021,10 +1309,42 @@ function exportToExcel() {
     document.body.removeChild(link);
 }
 
+// The RIS slip only reflects items that have actually been released to
+// someone — one row per RELEASE log entry, newest first (logs are already
+// stored newest-first). Unit and Item Description are looked up from the
+// current inventory record; if the item was since deleted, we fall back to
+// the item ID so the row doesn't go blank.
+function renderRisTable() {
+    const risBody = document.getElementById("risTable");
+    risBody.innerHTML = "";
+
+    const releases = (transactionLogs.items || []).filter(log => log.action === "RELEASE");
+
+    releases.forEach(log => {
+        const item = inventory.items[log.itemId];
+        const unit = item ? (item.unit || "pcs") : "—";
+        const description = item ? item.name : log.itemId;
+
+        risBody.innerHTML += `<tr>
+            <td>${log.timestamp}</td>
+            <td>${log.authorizedDate}</td>
+            <td>${log.qty}</td>
+            <td>${unit}</td>
+            <td>${description}</td>
+            <td style="text-align:center;">✔</td>
+            <td></td>
+            <td>${log.employee}</td>
+        </tr>`;
+    });
+
+    if (!risBody.innerHTML) risBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#999;">No items released yet.</td></tr>`;
+}
+
 // --- RENDERING ---
 function renderTables() {
     const invBody = document.getElementById("inventoryTable");
     invBody.innerHTML = "";
+
     for (let id in inventory.items) {
         let item = inventory.items[id];
         let currentUnit = item.unit || "pcs";
@@ -1033,15 +1353,17 @@ function renderTables() {
             <td>${item.name} <span class="unit-label">${currentUnit}</span></td>
             <td>${item.quantity}</td>
             <td style="text-align:center;">
+                <button class="action-btn edit-btn" onclick="editItem('${id}')" title="Edit item description">✏️</button>
                 <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
             </td>
         </tr>`;
     }
 
+    renderRisTable();
+
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
-    for (let empId in employees.items) {
-        const emp = employees.items[empId];
+    for (const [empId, emp] of getSortedEmployeeEntries()) {
         empBody.innerHTML += `<tr>
             <td><strong>${empId}</strong></td>
             <td>${emp.name}</td>
@@ -1051,26 +1373,6 @@ function renderTables() {
                 <button class="danger action-btn" onclick="deleteEmployee('${empId}')" title="Remove Employee Instance">🗑️</button>
             </td>
         </tr>`;
-    }
-
-    const logBody = document.getElementById("logTable");
-    logBody.innerHTML = "";
-    if (!transactionLogs.items || transactionLogs.items.length === 0) {
-        logBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#999;">No transaction logs recorded yet.</td></tr>`;
-    } else {
-        transactionLogs.items.forEach(log => {
-            let actionClass = "log-add";
-            if (log.action === "RELEASE" || log.action === "DELETE") actionClass = "log-release";
-
-            logBody.innerHTML += `<tr>
-                <td>${log.timestamp}</td>
-                <td><strong>${log.itemId}</strong></td>
-                <td class="${actionClass}">${log.action}</td>
-                <td>${log.qty}</td>
-                <td>${log.employee}</td>
-                <td>${log.authorizedDate}</td>
-            </tr>`;
-        });
     }
 }
 
@@ -1090,28 +1392,12 @@ function closeModals() {
     document.getElementById("finalReleaseBtn").disabled = true;
     document.getElementById("addQty").value = 1;
     document.getElementById("releaseQty").value = 1;
+    document.getElementById("employeeSearchInput").value = "";
+    document.getElementById("employeeSearchResults").innerHTML = "";
+    document.getElementById("employeeSearchResults").style.display = "none";
     activeEmployeeId = "";
     editingOldEmpId = "";
-}
-
-async function resetDatabase() {
-    if (!confirm("⚠️ This clears SHARED history and stock for everyone using this tracker, not just you. Continue?")) return;
-    try {
-        const seededInv = { rev: 0, items: JSON.parse(JSON.stringify(defaultInventoryItems)) };
-        const seededEmp = { rev: 0, items: JSON.parse(JSON.stringify(defaultEmployeeItems)) };
-        const seededLogs = { rev: 0, items: [] };
-        await Promise.all([
-            window.storage.set(STORAGE_KEYS.inventory, JSON.stringify(seededInv), true),
-            window.storage.set(STORAGE_KEYS.employees, JSON.stringify(seededEmp), true),
-            window.storage.set(STORAGE_KEYS.logs, JSON.stringify(seededLogs), true),
-        ]);
-        inventory = seededInv;
-        employees = seededEmp;
-        transactionLogs = seededLogs;
-        renderTables();
-    } catch (e) {
-        showSystemNotification("Reset Failed", "Could not reset shared data. Please try again.", false);
-    }
+    editingItemId = "";
 }
 
 // ============================================================
