@@ -95,6 +95,13 @@
         .employee-search-item:last-child { border-bottom: none; }
         .employee-search-item:hover { background: #e7f1ff; }
         .employee-search-empty { padding: 8px 12px; font-size: 13px; color: #999; }
+
+        /* Low-stock warning list (inventory tab) */
+        .low-stock-panel { display: none; margin-top: 8px; background: #fff5f5; border: 1px solid #dc3545; border-radius: 6px; padding: 8px 10px; max-height: 160px; overflow-y: auto; text-align: left; font-size: 13px; }
+        .low-stock-panel.open { display: block; }
+        .low-stock-item { padding: 5px 2px; border-bottom: 1px solid #f5c6cb; color: #721c24; }
+        .low-stock-item:last-child { border-bottom: none; }
+        .low-stock-empty-note { padding: 5px 2px; color: #999; }
         @keyframes spin { to { transform: rotate(360deg); } }
         .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #555; }
     </style>
@@ -122,12 +129,12 @@
                 <input type="text" id="newItemId" placeholder="e.g., ITEM004" style="text-transform: uppercase;">
                 <input type="text" id="newItemName" placeholder="e.g., Logitech Headset">
                 <select id="newItemUnit">
-                    <option value="pcs">pcs</option>
-                    <option value="box">box</option>
-                    <option value="set">set</option>
-                    <option value="unit">unit</option>
-                    <option value="pack">pack</option>
-                    <option value="ream">ream</option>
+                    <option value="pc">pc / pcs</option>
+                    <option value="pack">pack / packs</option>
+                    <option value="box">box / boxes</option>
+                    <option value="pad">pad / pads</option>
+                    <option value="bottle">bottle / bottles</option>
+                    <option value="ream">ream / reams</option>
                 </select>
                 <button type="button" id="registerItemBtn" style="padding: 8px 15px; margin: 0;" onclick="createNewItemType()">Register Item</button>
             </div>
@@ -156,6 +163,12 @@
             </div>
 
             <div>
+                <div id="lowStockBanner" style="display:none; position:relative; margin-bottom:10px;">
+                    <button type="button" class="danger" style="width:100%; margin:0;" onclick="toggleLowStockList()">
+                        ⚠️ <span id="lowStockCount">0</span> Item(s) Low on Stock — Click to View
+                    </button>
+                    <div id="lowStockListPanel" class="low-stock-panel"></div>
+                </div>
                 <h3>📋 Current Stock Levels</h3>
                 <div class="table-container">
                     <table>
@@ -400,9 +413,9 @@
 // SEED DATA
 // ============================================================
 const defaultInventoryItems = {
-    "ITEM001": { name: "Wireless Mouse Logi", unit: "pcs", quantity: 12 },
-    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pcs", quantity: 0 },
-    "ITEM003": { name: "Dell 27-inch Monitor", unit: "unit", quantity: 5 },
+    "ITEM001": { name: "Wireless Mouse Logi", unit: "pc", quantity: 12 },
+    "ITEM002": { name: "Mechanical Keyboard RGB", unit: "pc", quantity: 0 },
+    "ITEM003": { name: "Dell 27-inch Monitor", unit: "pc", quantity: 5 },
     "ITEM004": { name: "Bond Paper A4", unit: "box", quantity: 20 }
 };
 const defaultEmployeeItems = {
@@ -533,10 +546,18 @@ function normalizeEmployeeShape(empData) {
 
 // Older versions of this tracker may not have a unit set on every record.
 // Default any such records to "pcs" so the table always has something to show.
+// Normalizes unit values to our current base unit keys (mapping legacy
+// values like "pcs"/"unit"/"set"), and backfills baselineQty for records
+// created before low-stock tracking existed — defaulting it to the item's
+// current quantity so such items simply aren't flagged until their next
+// real restock establishes a proper baseline.
 function normalizeInventoryShape(invData) {
     for (let id in invData.items) {
         const item = invData.items[id];
-        if (!item.unit) item.unit = "pcs";
+        item.unit = normalizeUnitKey(item.unit);
+        if (item.baselineQty === undefined || item.baselineQty === null) {
+            item.baselineQty = item.quantity;
+        }
     }
     return invData;
 }
@@ -615,6 +636,33 @@ function formatDateMMDDYYYY(input) {
         day = String(d.getDate()).padStart(2, "0");
     }
     return `${month}-${day}-${year}`;
+}
+
+// Singular/plural forms for each supported base unit. The inventory item
+// (and each log entry) stores the base key (e.g. "pc"); the displayed label
+// is picked based on the quantity involved in that specific context.
+const UNIT_FORMS = {
+    pc:     { singular: "pc",     plural: "pcs"     },
+    pack:   { singular: "pack",   plural: "packs"   },
+    box:    { singular: "box",    plural: "boxes"   },
+    pad:    { singular: "pad",    plural: "pads"    },
+    bottle: { singular: "bottle", plural: "bottles" },
+    ream:   { singular: "ream",   plural: "reams"   }
+};
+
+function formatUnit(baseUnit, quantity) {
+    const forms = UNIT_FORMS[baseUnit];
+    if (!forms) return baseUnit || "pcs"; // unrecognized/legacy value we couldn't map, show as-is
+    return quantity === 1 ? forms.singular : forms.plural;
+}
+
+// Older records may have unit values from before this feature (e.g. "pcs",
+// "unit", "set") that aren't one of our base keys. Map those to the closest
+// base key so singular/plural formatting still works for them.
+function normalizeUnitKey(rawUnit) {
+    if (UNIT_FORMS[rawUnit]) return rawUnit;
+    const legacyMap = { pcs: "pc", unit: "pc", units: "pc", set: "pc", sets: "pc", packs: "pack", boxes: "box", pads: "pad", bottles: "bottle", reams: "ream" };
+    return legacyMap[rawUnit] || "pc";
 }
 
 async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(JSON.parse(r.value)); } catch(e){} }
@@ -1167,7 +1215,10 @@ function openAddModal() { openModal("addModal"); }
 
 async function submitAdd() {
     let qty = parseInt(document.getElementById("addQty").value);
-    if (!(qty > 0)) return;
+    if (!(qty > 0)) {
+        showSystemNotification("Invalid Quantity", "Please enter a quantity greater than 0.", false);
+        return;
+    }
     const itemId = activeItemId;
 
     setBtnBusy("submitAddBtn", true, "Saving…", "Submit to Inventory");
@@ -1175,12 +1226,15 @@ async function submitAdd() {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
             if (!latest.items[itemId]) throw new Error("Item no longer exists in the registry.");
             latest.items[itemId].quantity += qty;
+            // This restock becomes the new reference point for low-stock detection
+            latest.items[itemId].baselineQty = latest.items[itemId].quantity;
             return latest;
         });
         await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
-        showSystemNotification("Restock Success", `Successfully inbound-logged +${qty} units to inventory.`);
+        const addedUnitLabel = inventory.items[itemId] ? formatUnit(inventory.items[itemId].unit, qty) : formatUnit("pc", qty);
+        showSystemNotification("Restock Success", `Successfully inbound-logged +${qty} ${addedUnitLabel} to inventory.`);
     } catch (e) {
         await refreshInventory();
         renderTables();
@@ -1192,6 +1246,10 @@ async function submitAdd() {
 
 async function openEmployeeSelectionModal() {
     let qty = parseInt(document.getElementById("releaseQty").value);
+    if (!(qty > 0)) {
+        showSystemNotification("Invalid Quantity", "Please enter a quantity greater than 0.", false);
+        return;
+    }
 
     // Re-sync before showing available quantity, so this check reflects reality
     await refreshInventory();
@@ -1292,9 +1350,9 @@ async function submitRelease() {
         await appendLog(itemId, "RELEASE", qty, empLabel, authDate);
         await refreshInventory();
         renderTables();
-        const unitLabel = inventory.items[itemId] ? inventory.items[itemId].unit : "unit";
+        const unitLabel = inventory.items[itemId] ? formatUnit(inventory.items[itemId].unit, qty) : formatUnit("pc", qty);
         closeModals();
-        showSystemNotification("Release Dispatched", `Successfully signed out ${qty} ${unitLabel}(s) to ${empLabel}.`);
+        showSystemNotification("Release Dispatched", `Successfully signed out ${qty} ${unitLabel} to ${empLabel}.`);
     } catch (e) {
         await refreshInventory();
         renderTables();
@@ -1351,7 +1409,7 @@ function renderRisTable() {
 
     releases.forEach(log => {
         const item = inventory.items[log.itemId];
-        const unit = item ? (item.unit || "pcs") : "—";
+        const unit = item ? formatUnit(item.unit, log.qty) : "—";
         const description = item ? item.name : log.itemId;
 
         risBody.innerHTML += `<tr>
@@ -1382,7 +1440,7 @@ function renderIncomingItemsTable() {
 
     incoming.forEach(log => {
         const item = inventory.items[log.itemId];
-        const unit = item ? (item.unit || "pcs") : "—";
+        const unit = item ? formatUnit(item.unit, log.qty) : "—";
         const description = item ? item.name : log.itemId;
 
         incomingBody.innerHTML += `<tr>
@@ -1397,6 +1455,57 @@ function renderIncomingItemsTable() {
     if (!incomingBody.innerHTML) incomingBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No incoming items recorded yet.</td></tr>`;
 }
 
+// --- LOW STOCK WARNING ---
+// An item is "low" once its current quantity drops to 15% or below of
+// baselineQty — the stock level right after its most recent restock. Items
+// never restocked (baselineQty 0/undefined) are never flagged, since there's
+// no reference point yet.
+let lowStockListOpen = false;
+
+function isLowStock(item) {
+    return item.baselineQty > 0 && item.quantity <= item.baselineQty * 0.15;
+}
+
+function getLowStockEntries() {
+    return Object.entries(inventory.items).filter(([id, item]) => isLowStock(item));
+}
+
+function updateLowStockBanner() {
+    const banner = document.getElementById("lowStockBanner");
+    const countSpan = document.getElementById("lowStockCount");
+    const panel = document.getElementById("lowStockListPanel");
+    if (!banner || !panel) return;
+
+    const lowEntries = getLowStockEntries();
+
+    if (lowEntries.length === 0) {
+        banner.style.display = "none";
+        lowStockListOpen = false;
+        panel.classList.remove("open");
+        panel.innerHTML = "";
+        return;
+    }
+
+    banner.style.display = "block";
+    countSpan.innerText = lowEntries.length;
+
+    // Rebuild the panel contents every render so items that get restocked
+    // back above 15% disappear from the list automatically, and the count
+    // stays accurate as long as anything remains below the threshold.
+    panel.innerHTML = lowEntries.map(([id, item]) => {
+        const unitLabel = formatUnit(item.unit, item.quantity);
+        return `<div class="low-stock-item"><strong>${id}</strong> — ${item.name}: ${item.quantity} ${unitLabel} left (restocked to ${item.baselineQty} last time)</div>`;
+    }).join("");
+
+    panel.classList.toggle("open", lowStockListOpen);
+}
+
+function toggleLowStockList() {
+    lowStockListOpen = !lowStockListOpen;
+    const panel = document.getElementById("lowStockListPanel");
+    if (panel) panel.classList.toggle("open", lowStockListOpen);
+}
+
 // --- RENDERING ---
 function renderTables() {
     const invBody = document.getElementById("inventoryTable");
@@ -1404,7 +1513,7 @@ function renderTables() {
 
     for (let id in inventory.items) {
         let item = inventory.items[id];
-        let currentUnit = item.unit || "pcs";
+        let currentUnit = formatUnit(item.unit, item.quantity);
         invBody.innerHTML += `<tr>
             <td><strong>${id}</strong></td>
             <td>${item.name} <span class="unit-label">${currentUnit}</span></td>
@@ -1418,6 +1527,7 @@ function renderTables() {
 
     renderRisTable();
     renderIncomingItemsTable();
+    updateLowStockBanner();
 
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
