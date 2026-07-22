@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CVLIS Inventory Tracker</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+    <!-- Primary & Fallback jsQR CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/jsqr@1.4.0/dist/jsQR.js';"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 15px; background-color: #f4f4f9; display: flex; justify-content: center; }
@@ -79,8 +80,6 @@
         .notif-success { color: #28a745; }
         .notif-error { color: #dc3545; }
 
-        .log-add { color: #28a745; font-weight: bold; }
-        .log-release { color: #dc3545; font-weight: bold; }
         .unit-label { font-size: 12px; color: #666; background: #e9ecef; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
 
         /* Layout header for report tools */
@@ -101,9 +100,7 @@
         .low-stock-panel.open { display: block; }
         .low-stock-item { padding: 5px 2px; border-bottom: 1px solid #f5c6cb; color: #721c24; }
         .low-stock-item:last-child { border-bottom: none; }
-        .low-stock-empty-note { padding: 5px 2px; color: #999; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.7); display: flex; align-items: center; justify-content: center; font-weight: bold; color: #555; }
     </style>
 </head>
 <body>
@@ -182,7 +179,6 @@
         </div>
     </div>
 
-
     <div id="tab-employees" class="tab-content">
         <div class="management-box">
             <h4 style="margin: 0; color: #28a745;">➕ Add New Personnel / Receiver</h4>
@@ -199,7 +195,6 @@
             <h4 style="margin: 0; color: #28a745;">📤 Bulk Upload from Excel</h4>
             <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">
                 Upload an .xlsx/.xls/.csv file with column headers <strong>EMPLOYEE NUMBER</strong>, <strong>EMPLOYEE NAME</strong>, and <strong>POSITION</strong>.
-                Existing employee numbers will be updated; new ones will be added.
             </p>
             <div class="inline-form">
                 <input type="file" id="empExcelInput" accept=".xlsx,.xls,.csv" style="flex: 2; min-width: 200px; background:white; padding:8px; border:1px solid #ccc; border-radius:4px;">
@@ -207,7 +202,7 @@
             </div>
         </div>
 
-        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
+        <div style="display:flex; justify-space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:10px;">
             <h3 style="margin:0;">👥 Registered Personnel Registry</h3>
             <div style="display:flex; align-items:center; gap:6px;">
                 <label for="employeeSortSelect" style="font-size:13px; color:#555; font-weight:bold;">Sort by:</label>
@@ -234,7 +229,6 @@
             <h3 style="margin: 0;">📄 Requisition and Issuance Slip (RIS)</h3>
             <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
         </div>
-        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Auto-filled whenever an item is released to an employee.</p>
         <div class="table-container" style="height: 400px;">
             <table>
                 <thead>
@@ -256,7 +250,6 @@
         <div class="report-header" style="margin-top: 25px;">
             <h3 style="margin: 0;">📥 Incoming Items Log</h3>
         </div>
-        <p style="margin: 2px 0 10px 0; font-size: 12px; color: #666;">Automatically recorded whenever an item is registered or restocked. View only — not editable.</p>
         <div class="table-container" style="height: 350px;">
             <table>
                 <thead>
@@ -329,8 +322,6 @@
 <div id="editEmployeeModal" class="modal">
     <div class="modal-content">
         <h3 style="color: #ffc107; margin-bottom: 10px;">✏️ Edit Employee Profile</h3>
-        <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Modify this worker's identification parameters below.</p>
-        
         <label for="editEmpIdInput">Employee ID / Number:</label>
         <input type="text" id="editEmpIdInput" style="text-transform: uppercase;">
         
@@ -349,8 +340,6 @@
 <div id="editItemModal" class="modal">
     <div class="modal-content">
         <h3 style="color: #ffc107; margin-bottom: 10px;">✏️ Edit Item Description</h3>
-        <p style="font-size: 12px; color: #666; margin-bottom: 15px;">Update this item's description below.</p>
-
         <label for="editItemIdLabel">Item ID:</label>
         <input type="text" id="editItemIdLabel" disabled style="background:#eee;">
 
@@ -371,6 +360,7 @@
         <button id="notifCloseBtn" style="width: 100%; background-color: #007bff;" onclick="closeModals()">Acknowledge</button>
     </div>
 </div>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
   import { getDatabase, ref, get as fbGet, set as fbSet, remove as fbRemove } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
@@ -407,9 +397,10 @@
     }
   };
 </script>
-<script defer>
+
+<script>
 // ============================================================
-// SEED DATA
+// SEED DATA & ENGINE LOGIC
 // ============================================================
 const defaultInventoryItems = {
     "ITEM001": { name: "Alcohol (1 gallon)", unit: "bottle", quantity: 6 },
@@ -422,96 +413,7 @@ const defaultInventoryItems = {
     "ITEM008": { name: "Battery (AA)", unit: "pc", quantity: 4 },
     "ITEM009": { name: "Battery (AAA)", unit: "pc", quantity: 16 },
     "ITEM010": { name: "Baygon", unit: "bottle", quantity: 9 },
-    "ITEM011": { name: "Binder Clips (1 5/8 inch)", unit: "box", quantity: 17 },
-    "ITEM012": { name: "Binder Clips (1 inch)", unit: "box", quantity: 16 },
-    "ITEM013": { name: "Binder Clips (2 inches)", unit: "box", quantity: 13 },
-    "ITEM014": { name: "Binder Clips (3/4 inch)", unit: "box", quantity: 17 },
-    "ITEM015": { name: "Bond Paper (A4)", unit: "ream", quantity: 186 },
-    "ITEM016": { name: "Bond Paper (Legal)", unit: "ream", quantity: 42 },
-    "ITEM017": { name: "Cartolina", unit: "pc", quantity: 108 },
-    "ITEM018": { name: "Clear Sheet Refill (100's)", unit: "pack", quantity: 8 },
-    "ITEM019": { name: "Clorox (Disinfecting Wipes)", unit: "bottle", quantity: 4 },
-    "ITEM020": { name: "Correction Tape", unit: "pc", quantity: 9 },
-    "ITEM021": { name: "Cutter", unit: "pc", quantity: 11 },
-    "ITEM022": { name: "Cutter Blade", unit: "pc", quantity: 6 },
-    "ITEM023": { name: "Dishwashing Liquid", unit: "bottle", quantity: 10 },
-    "ITEM024": { name: "Disinfectant (Blue Vitriol)", unit: "bottle", quantity: 18 },
-    "ITEM025": { name: "Envelope ( Brown - A4)", unit: "pc", quantity: 56 },
-    "ITEM026": { name: "Envelope (Brown - Long)", unit: "pc", quantity: 5 },
-    "ITEM027": { name: "Envelope (Brown - Short)", unit: "pc", quantity: 6 },
-    "ITEM028": { name: "Envelope with Garter (Long - Blue)", unit: "pc", quantity: 21 },
-    "ITEM029": { name: "Epson Ink (Black)", unit: "bottle", quantity: 41 },
-    "ITEM030": { name: "Epson Ink (Cyan)", unit: "bottle", quantity: 29 },
-    "ITEM031": { name: "Epson Ink (Magenta)", unit: "bottle", quantity: 29 },
-    "ITEM032": { name: "Epson Ink (Yellow)", unit: "bottle", quantity: 24 },
-    "ITEM033": { name: "Folder (Expanded - Blue)", unit: "pc", quantity: 46 },
-    "ITEM034": { name: "Folder (Expanded - Green)", unit: "pc", quantity: 26 },
-    "ITEM035": { name: "Folder (Plain - Long)", unit: "pc", quantity: 54 },
-    "ITEM036": { name: "Folder (Record Cover)", unit: "pc", quantity: 59 },
-    "ITEM037": { name: "Glade (Scented Gel)", unit: "pc", quantity: 8 },
-    "ITEM038": { name: "Glade (Spray)", unit: "bottle", quantity: 2 },
-    "ITEM039": { name: "Glue", unit: "pc", quantity: 23 },
-    "ITEM040": { name: "Handwashing Liqud (1 gallon)", unit: "bottle", quantity: 19 },
-    "ITEM041": { name: "Handwashing Liquid", unit: "bottle", quantity: 38 },
-    "ITEM042": { name: "Laminating Film (A4)", unit: "ream", quantity: 3 },
-    "ITEM043": { name: "Latex Gloves", unit: "box", quantity: 0 },
-    "ITEM044": { name: "Lysol", unit: "bottle", quantity: 3 },
-    "ITEM045": { name: "Manila Paper", unit: "pc", quantity: 25 },
-    "ITEM046": { name: "Marker (Permanent - Broad)", unit: "pc", quantity: 43 },
-    "ITEM047": { name: "Marker (White Board - Broad)", unit: "pc", quantity: 12 },
-    "ITEM048": { name: "Paper Clips (33mm)", unit: "box", quantity: 4 },
-    "ITEM049": { name: "Paper Clips (50mm)", unit: "box", quantity: 1 },
-    "ITEM050": { name: "Paper Fastener", unit: "box", quantity: 14 },
-    "ITEM051": { name: "Pencil", unit: "pc", quantity: 20 },
-    "ITEM052": { name: "PET Card Sheets", unit: "ream", quantity: 13 },
-    "ITEM053": { name: "Photopaper (A4)", unit: "pack", quantity: 18 },
-    "ITEM054": { name: "Plastic Envelope (Plain - Long)", unit: "pc", quantity: 16 },
-    "ITEM055": { name: "Plastic Envelope w/ Holder (Long - Green)", unit: "pc", quantity: 41 },
-    "ITEM056": { name: "Plastic Envelope w/ Holder (Long)", unit: "pc", quantity: 0 },
-    "ITEM057": { name: "Plastic Envelope w/o Holder (Long)", unit: "pc", quantity: 9 },
-    "ITEM058": { name: "Powder Detergent", unit: "pc", quantity: 303 },
-    "ITEM059": { name: "Protractor", unit: "pc", quantity: 8 },
-    "ITEM060": { name: "Puncher", unit: "pc", quantity: 2 },
-    "ITEM061": { name: "PVC Card Sheets", unit: "ream", quantity: 3 },
-    "ITEM062": { name: "PVC Folder", unit: "pc", quantity: 16 },
-    "ITEM063": { name: "Record Book", unit: "pc", quantity: 0 },
-    "ITEM064": { name: "Refill Ink", unit: "pc", quantity: 3 },
-    "ITEM065": { name: "Ruler", unit: "pc", quantity: 24 },
-    "ITEM066": { name: "Scissors", unit: "pc", quantity: 7 },
-    "ITEM067": { name: "Scotch Brite", unit: "pc", quantity: 6 },
-    "ITEM068": { name: "Specialty Paper (Imari - Short)", unit: "pack", quantity: 15 },
-    "ITEM069": { name: "Stamp Pad", unit: "pc", quantity: 0 },
-    "ITEM070": { name: "Stamp Pad Ink", unit: "pc", quantity: 3 },
-    "ITEM071": { name: "Staple Wire (12mm)", unit: "box", quantity: 13 },
-    "ITEM072": { name: "Staple Wire (15mm)", unit: "box", quantity: 22 },
-    "ITEM073": { name: "Staple Wire (20mm)", unit: "box", quantity: 25 },
-    "ITEM074": { name: "Staple Wire (6mm - No.35) - MAX", unit: "box", quantity: 18 },
-    "ITEM075": { name: "Staple Wire (8mm)", unit: "box", quantity: 15 },
-    "ITEM076": { name: "Stapler", unit: "pc", quantity: 6 },
-    "ITEM077": { name: "Sticker Paper", unit: "pack", quantity: 18 },
-    "ITEM078": { name: "Sticker Tabs", unit: "pack", quantity: 46 },
-    "ITEM079": { name: "Sticky Notes", unit: "pack", quantity: 2 },
-    "ITEM080": { name: "Tape ( Double-sided, Thickened)", unit: "pc", quantity: 22 },
-    "ITEM081": { name: "Tape (Double-sided, Ordinary)", unit: "pc", quantity: 35 },
-    "ITEM082": { name: "Tape (Duct - Blue)", unit: "pc", quantity: 10 },
-    "ITEM083": { name: "Tape (Duct - Grey)", unit: "pc", quantity: 0 },
-    "ITEM084": { name: "Tape (Masking)", unit: "pc", quantity: 20 },
-    "ITEM085": { name: "Tape (Packaging)", unit: "pc", quantity: 13 },
-    "ITEM086": { name: "Tape (Scotch)", unit: "pc", quantity: 21 },
-    "ITEM087": { name: "Tape Dispenser", unit: "pc", quantity: 0 },
-    "ITEM088": { name: "Tape Dispenser (Packaging)", unit: "pc", quantity: 2 },
-    "ITEM089": { name: "Three ring binder (LD100)", unit: "pc", quantity: 3 },
-    "ITEM090": { name: "Three ring binder (LD200)", unit: "pc", quantity: 3 },
-    "ITEM091": { name: "Three ring binder (LD300)", unit: "pc", quantity: 14 },
-    "ITEM092": { name: "Thumb Tacks", unit: "box", quantity: 14 },
-    "ITEM093": { name: "Tissue (Box)", unit: "box", quantity: 8 },
-    "ITEM094": { name: "Tissue (Roll)", unit: "pc", quantity: 172 },
-    "ITEM095": { name: "Vellum Board (A4 - 10's)", unit: "pack", quantity: 105 },
-    "ITEM096": { name: "Vellum Board (A4 - 100's)", unit: "pack", quantity: 0 },
-    "ITEM097": { name: "Vellum Board (Long - 10's)", unit: "pack", quantity: 6 },
-    "ITEM098": { name: "Vellum Board (Long - 100's)", unit: "pack", quantity: 18 },
-    "ITEM099": { name: "Zonrox  (Original)", unit: "bottle", quantity: 9 },
-    "ITEM100": { name: "Zonrox  (Color safe)", unit: "bottle", quantity: 10 }
+    "ITEM015": { name: "Bond Paper (A4)", unit: "ream", quantity: 186 }
 };
 const defaultEmployeeItems = {
     "EMP01": { name: "Juan Dela Cruz", position: "Warehouse Staff" },
@@ -526,7 +428,6 @@ let transactionLogs = { rev: 0, items: [] };
 const STORAGE_KEYS = { inventory: "cvlis_inventory", employees: "cvlis_employees", logs: "cvlis_logs" };
 
 if (!window.storage) {
-    console.warn("window.storage not found — falling back to localStorage (single browser only, no cross-device sync).");
     window.storage = {
         async get(key) {
             const raw = localStorage.getItem("cvlis_fallback_" + key);
@@ -538,23 +439,12 @@ if (!window.storage) {
             return { key, value, shared: true };
         },
         async delete(key) {
-            const existed = localStorage.getItem("cvlis_fallback_" + key) !== null;
             localStorage.removeItem("cvlis_fallback_" + key);
-            return { key, deleted: existed, shared: true };
-        },
-        async list(prefix) {
-            const keys = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i);
-                if (k && k.startsWith("cvlis_fallback_")) {
-                    const stripped = k.slice("cvlis_fallback_".length);
-                    if (!prefix || stripped.startsWith(prefix)) keys.push(stripped);
-                }
-            }
-            return { keys, prefix, shared: true };
+            return { key, deleted: true, shared: true };
         }
     };
 }
+
 const MAX_LOG_ENTRIES = 500;
 const POLL_INTERVAL_MS = 5000;
 
@@ -563,13 +453,12 @@ let pendingReleaseQty = 0;
 let activeEmployeeId = "";
 let editingOldEmpId = "";
 let editingItemId = "";
-let dataReady = false;
 let employeeSortMode = "numAsc"; 
 
-function setEmployeeSort(mode) {
+window.setEmployeeSort = function(mode) {
     employeeSortMode = mode;
     renderTables();
-}
+};
 
 function getSortedEmployeeEntries() {
     const entries = Object.entries(employees.items); 
@@ -586,24 +475,9 @@ function getSortedEmployeeEntries() {
     return entries;
 }
 
-// ============================================================
-// SHARED STORAGE LAYER (FIXED)
-// ============================================================
-
 async function safeGet(key) {
     try {
         return await window.storage.get(key);
-    } catch (e) {
-        if (e && typeof e.message === "string" && e.message.includes("Key not found")) {
-            return null; 
-        }
-        throw e; 
-    }
-}
-
-async function safeGetOrNull(key) {
-    try {
-        return await safeGet(key);
     } catch (e) {
         return null;
     }
@@ -615,23 +489,19 @@ async function loadOrSeed(key, defaultItems) {
         try {
             const parsed = typeof res.value === 'string' ? JSON.parse(res.value) : res.value;
             if (parsed && typeof parsed === "object" && "items" in parsed) return parsed;
-        } catch (e) { /* fall through and reseed */ }
+        } catch (e) {}
     }
     const seeded = { rev: 0, items: defaultItems };
     try {
         await window.storage.set(key, JSON.stringify(seeded));
-    } catch (e) {
-        console.warn("Seed failed for", key, e);
-    }
+    } catch (e) {}
     return seeded;
 }
 
 function normalizeEmployeeShape(empData) {
-    let changed = false;
     for (let id in empData.items) {
         if (typeof empData.items[id] === "string") {
             empData.items[id] = { name: empData.items[id], position: "" };
-            changed = true;
         }
     }
     return empData;
@@ -657,27 +527,18 @@ async function loadAllData() {
     inventory = normalizeInventoryShape(inv);
     employees = normalizeEmployeeShape(emp);
     transactionLogs = logs;
-    dataReady = true;
     renderTables();
     setSyncStatus("ok", "Synced");
 }
 
 async function mutateShared(key, mutatorFn, maxRetries = 6) {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-        let res;
-        try {
-            res = await safeGet(key);
-        } catch (e) {
-            await sleep(150 + Math.random() * 200);
-            continue;
-        }
-        
+        let res = await safeGet(key);
         let latest;
         try {
             if (res && res.value) {
                 latest = typeof res.value === 'string' ? JSON.parse(res.value) : res.value;
             } else {
-                // If the database has no record for this key, fall back to memory
                 if (key === STORAGE_KEYS.inventory) latest = inventory;
                 else if (key === STORAGE_KEYS.employees) latest = employees;
                 else if (key === STORAGE_KEYS.logs) latest = transactionLogs;
@@ -696,28 +557,11 @@ async function mutateShared(key, mutatorFn, maxRetries = 6) {
         } catch (e) {
             setResult = null;
         }
-        if (!setResult) {
-            await sleep(100 + Math.random() * 150);
-            continue;
-        }
-
-        let verified = null;
-        try {
-            const verifyRes = await safeGet(key);
-            if (verifyRes && verifyRes.value) {
-                verified = typeof verifyRes.value === 'string' ? JSON.parse(verifyRes.value) : verifyRes.value;
-            }
-        } catch (e) { /* verification fetch failed */ }
-
-        if (verified && verified.rev === updated.rev) {
-            return updated; 
-        }
-        await sleep(100 + Math.random() * 150);
+        if (setResult) return updated;
+        await new Promise(r => setTimeout(r, 100));
     }
-    throw new Error("Couldn't reach the database after several attempts — check your connection and try again.");
+    throw new Error("Couldn't reach the database. Try again.");
 }
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function formatDateMMDDYYYY(input) {
     let year, month, day;
@@ -733,12 +577,12 @@ function formatDateMMDDYYYY(input) {
 }
 
 const UNIT_FORMS = {
-    pc:     { singular: "pc",     plural: "pcs"     },
-    pack:   { singular: "pack",   plural: "packs"   },
-    box:    { singular: "box",    plural: "boxes"   },
-    pad:    { singular: "pad",    plural: "pads"    },
+    pc: { singular: "pc", plural: "pcs" },
+    pack: { singular: "pack", plural: "packs" },
+    box: { singular: "box", plural: "boxes" },
+    pad: { singular: "pad", plural: "pads" },
     bottle: { singular: "bottle", plural: "bottles" },
-    ream:   { singular: "ream",   plural: "reams"   }
+    ream: { singular: "ream", plural: "reams" }
 };
 
 function formatUnit(baseUnit, quantity) {
@@ -749,13 +593,13 @@ function formatUnit(baseUnit, quantity) {
 
 function normalizeUnitKey(rawUnit) {
     if (UNIT_FORMS[rawUnit]) return rawUnit;
-    const legacyMap = { pcs: "pc", unit: "pc", units: "pc", set: "pc", sets: "pc", packs: "pack", boxes: "box", pads: "pad", bottles: "bottle", reams: "ream" };
+    const legacyMap = { pcs: "pc", unit: "pc", units: "pc", packs: "pack", boxes: "box", pads: "pad", bottles: "bottle", reams: "ream" };
     return legacyMap[rawUnit] || "pc";
 }
 
-async function refreshInventory() { const r = await safeGetOrNull(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
-async function refreshEmployees() { const r = await safeGetOrNull(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
-async function refreshLogs() { const r = await safeGetOrNull(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch(e){} }
+async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
+async function refreshEmployees() { const r = await safeGet(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
+async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch(e){} }
 
 async function appendLog(itemId, action, qty, employeeLabel, authorizedDate) {
     const timestamp = new Date().toLocaleTimeString();
@@ -766,16 +610,13 @@ async function appendLog(itemId, action, qty, employeeLabel, authorizedDate) {
             if (latest.items.length > MAX_LOG_ENTRIES) latest.items = latest.items.slice(0, MAX_LOG_ENTRIES);
             return latest;
         });
-    } catch (e) {
-        console.warn("Log append failed (transaction itself still succeeded):", e);
-    }
+    } catch (e) {}
 }
 
 function startPolling() {
     setInterval(async () => {
         const anyModalOpen = document.querySelectorAll('.modal[style*="flex"]').length > 0;
         if (anyModalOpen) return;
-        setSyncStatus("stale", "Syncing…");
         try {
             await Promise.all([refreshInventory(), refreshEmployees(), refreshLogs()]);
             renderTables();
@@ -795,7 +636,7 @@ function setSyncStatus(state, text) {
 }
 
 // ============================================================
-// QR SCANNING
+// REFIXED QR SCANNING ENGINE
 // ============================================================
 let videoElement, canvasElement, canvasCtx;
 let currentStream = null;
@@ -831,26 +672,19 @@ async function attachCameraStream(stream, badgeText) {
     videoElement.setAttribute("playsinline", true);
     await videoElement.play();
 
-    const [track] = stream.getVideoTracks();
-    if (track && typeof track.getCapabilities === "function") {
-        try {
-            const caps = track.getCapabilities();
-            const advanced = {};
-            if (caps.focusMode && caps.focusMode.includes("continuous")) advanced.focusMode = "continuous";
-            if (caps.exposureMode && caps.exposureMode.includes("continuous")) advanced.exposureMode = "continuous";
-            if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] });
-        } catch (e) { /* not supported */ }
-    }
-
     scanning = true;
     requestAnimationFrame(scanTick);
     updateBadgeDisplay(badgeText, "#28a745");
     setScannerButtons(true);
 }
 
-async function initCameraSystem() {
+window.initCameraSystem = async function() {
+    if (typeof jsQR === "undefined") {
+        updateBadgeDisplay("🔴 QR Library Missing. Check internet connection.", "#dc3545");
+        return;
+    }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        updateBadgeDisplay("🔴 Camera API unavailable in this browser/context", "#dc3545");
+        updateBadgeDisplay("🔴 Camera API unavailable in this browser", "#dc3545");
         setScannerButtons(false);
         return;
     }
@@ -860,67 +694,60 @@ async function initCameraSystem() {
     updateBadgeDisplay("🔄 Requesting camera access...", "#007bff");
     stopActiveStreams();
 
-    const highRes = { width: { ideal: 1920 }, height: { ideal: 1080 } };
-
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" }, ...highRes }, audio: false });
-        await attachCameraStream(stream, "🟢 Rear Camera Active: Scan an Item");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
+        await attachCameraStream(stream, "🟢 Rear Camera Active: Scan a QR Code");
         return;
     } catch (err) {}
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", ...highRes }, audio: false });
-        await attachCameraStream(stream, "🟢 Rear Camera Active (Fallback)");
-        return;
-    } catch (err) {}
-
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { ...highRes }, audio: false });
-        await attachCameraStream(stream, "🟢 Camera Active (No Rear Lens Found)");
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        await attachCameraStream(stream, "🟢 Camera Active");
     } catch (err) {
-        let reason = "Camera unavailable";
-        if (err && err.name === "NotAllowedError") reason = "Camera permission denied";
-        else if (err && err.name === "NotFoundError") reason = "No camera found on this device";
-        else if (err && err.name === "NotReadableError") reason = "Camera already in use by another app";
-        else if (location.protocol !== "https:" && location.hostname !== "localhost") reason = "Camera requires HTTPS";
-        updateBadgeDisplay(`🔴 ${reason} — use manual entry below`, "#dc3545");
+        updateBadgeDisplay("🔴 Camera unavailable/permission denied", "#dc3545");
         setScannerButtons(false);
     }
-}
+};
 
-function stopScanner() {
+window.stopScanner = function() {
     stopActiveStreams();
     updateBadgeDisplay("⏹️ Camera stopped", "#6c757d");
     setScannerButtons(false);
-}
+};
 
-function submitManualCode() {
+window.submitManualCode = function() {
     const input = document.getElementById("manualCodeInput");
     if (!input) return;
     const code = input.value.trim().toUpperCase();
     if (!code) return;
     input.value = "";
     handleItemScan(code);
-}
+};
 
 function scanTick() {
     if (!scanning) return;
-    if (videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+
+    if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
         canvasElement.height = videoElement.videoHeight;
         canvasElement.width = videoElement.videoWidth;
         canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
         try {
             const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
-            if (code && code.data) {
-                const now = Date.now();
-                if (code.data !== lastScanCode || now - lastScanTime > 3000) {
-                    lastScanCode = code.data;
-                    lastScanTime = now;
-                    handleRawScan(code.data);
+            if (typeof jsQR !== "undefined") {
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+                if (code && code.data) {
+                    const now = Date.now();
+                    if (code.data !== lastScanCode || now - lastScanTime > 3000) {
+                        lastScanCode = code.data;
+                        lastScanTime = now;
+                        handleRawScan(code.data);
+                    }
                 }
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("Frame decoding error:", e);
+        }
     }
     requestAnimationFrame(scanTick);
 }
@@ -935,14 +762,14 @@ function handleRawScan(content) {
 }
 
 // ============================================================
-// UI PLUMBING
+// UI & CONTROLLER BINDINGS
 // ============================================================
-function switchTab(targetTab) {
+window.switchTab = function(targetTab) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`tab-${targetTab}`).classList.add('active');
     document.getElementById(`nav-${targetTab}`).classList.add('active');
-}
+};
 
 function showSystemNotification(title, message, isSuccess = true) {
     const iconSpan = document.getElementById("notifIcon");
@@ -967,288 +794,6 @@ function showSystemNotification(title, message, isSuccess = true) {
     openModal("notificationModal");
 }
 
-function setBtnBusy(btnId, busy, busyLabel, normalLabel) {
-    const btn = document.getElementById(btnId);
-    if (!btn) return;
-    btn.disabled = busy;
-    btn.innerHTML = busy ? `<span class="btn-spinner"></span>${busyLabel}` : normalLabel;
-}
-
-// --- INVENTORY MANAGEMENT ENGINES ---
-async function createNewItemType() {
-    let idInput = document.getElementById("newItemId");
-    let nameInput = document.getElementById("newItemName");
-    let unitInput = document.getElementById("newItemUnit");
-
-    let itemId = idInput.value.trim().toUpperCase();
-    let itemName = nameInput.value.trim();
-    let itemUnit = unitInput.value;
-
-    if (!itemId || !itemName) {
-        showSystemNotification("Registration Void", "Please fill out both the Item ID and Item Description fields.", false);
-        return;
-    }
-    if (inventory.items[itemId]) {
-        showSystemNotification("Item Conflict", `Item ID "${itemId}" already exists in the system registry.`, false);
-        return;
-    }
-
-    setBtnBusy("registerItemBtn", true, "Saving…", "Register Item");
-    try {
-        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
-            if (latest.items[itemId]) throw new Error(`Item ID "${itemId}" already exists in the system registry.`);
-            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
-            return latest;
-        });
-        await appendLog(itemId, "ADD", 0, "System Initialization", formatDateMMDDYYYY(new Date()));
-        await refreshInventory();
-        renderTables();
-
-        idInput.value = "";
-        nameInput.value = "";
-        showSystemNotification("Item Registered", `"${itemId}" successfully added with 0 units.`);
-    } catch (e) {
-        showSystemNotification("Item Conflict", e.message, false);
-    } finally {
-        setBtnBusy("registerItemBtn", false, "", "Register Item");
-    }
-}
-
-async function deleteItem(itemId) {
-    if (!confirm(`⚠️ Completely delete "${inventory.items[itemId].name}" (${itemId})?`)) return;
-    try {
-        const removedQty = inventory.items[itemId] ? inventory.items[itemId].quantity : 0;
-        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
-            if (!latest.items[itemId]) throw new Error("Item was already removed.");
-            delete latest.items[itemId];
-            return latest;
-        });
-        await appendLog(itemId, "DELETE", removedQty, "System Management", formatDateMMDDYYYY(new Date()));
-        await refreshInventory();
-        renderTables();
-    } catch (e) {
-        showSystemNotification("Delete Failed", e.message, false);
-        await refreshInventory();
-        renderTables();
-    }
-}
-
-function editItem(itemId) {
-    if (!inventory.items[itemId]) return;
-    editingItemId = itemId;
-    document.getElementById("editItemIdLabel").value = itemId;
-    document.getElementById("editItemNameInput").value = inventory.items[itemId].name;
-    openModal("editItemModal");
-}
-
-async function submitItemEdit() {
-    let newName = document.getElementById("editItemNameInput").value.trim();
-    if (!newName) {
-        showSystemNotification("Blank Field", "Item description cannot be empty.", false);
-        return;
-    }
-
-    const itemId = editingItemId;
-    setBtnBusy("saveItemEditBtn", true, "Saving…", "Save Changes");
-    try {
-        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
-            if (!latest.items[itemId]) throw new Error("Item no longer exists in the registry.");
-            latest.items[itemId].name = newName;
-            return latest;
-        });
-        await refreshInventory();
-        renderTables();
-        closeModals();
-        showSystemNotification("Update Success", `"${itemId}" description updated successfully.`);
-    } catch (e) {
-        showSystemNotification("Update Failed", e.message, false);
-    } finally {
-        setBtnBusy("saveItemEditBtn", false, "", "Save Changes");
-    }
-}
-
-// --- PERSONNEL MANAGEMENT ENGINES ---
-async function createNewEmployee() {
-    let idInput = document.getElementById("newEmpId");
-    let nameInput = document.getElementById("newEmpName");
-    let positionInput = document.getElementById("newEmpPosition");
-    let empId = idInput.value.trim().toUpperCase();
-    let empName = nameInput.value.trim();
-    let empPosition = positionInput.value.trim();
-
-    if (!empId || !empName) {
-        showSystemNotification("Input Blank", "Please fill out both the Employee ID and Full Name fields.", false);
-        return;
-    }
-
-    setBtnBusy("registerEmpBtn", true, "Saving…", "Register Employee");
-    try {
-        await mutateShared(STORAGE_KEYS.employees, (latest) => {
-            if (latest.items[empId]) throw new Error(`Employee ID "${empId}" already exists in the system database.`);
-            latest.items[empId] = { name: empName, position: empPosition };
-            return latest;
-        });
-        await refreshEmployees();
-        renderTables();
-        idInput.value = ""; nameInput.value = ""; positionInput.value = "";
-        showSystemNotification("Personnel Added", `Employee profile "${empId}" registered successfully.`);
-    } catch (e) {
-        showSystemNotification("ID Conflict", e.message, false);
-    } finally {
-        setBtnBusy("registerEmpBtn", false, "", "Register Employee");
-    }
-}
-
-// --- BULK IMPORT FROM EXCEL ---
-function normalizeHeaderKey(key) {
-    return String(key || "").trim().toUpperCase().replace(/\s+/g, " ");
-}
-
-async function importEmployeesFromExcel() {
-    const fileInput = document.getElementById("empExcelInput");
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) {
-        showSystemNotification("No File Selected", "Please choose an Excel (.xlsx/.xls) or CSV file first.", false);
-        return;
-    }
-    if (typeof XLSX === "undefined") {
-        showSystemNotification("Import Unavailable", "The Excel import library failed to load. Check your connection and try again.", false);
-        return;
-    }
-
-    setBtnBusy("uploadEmpBtn", true, "Importing…", "Upload & Import");
-    try {
-        const rows = await parseExcelFile(file);
-        if (rows.length === 0) {
-            showSystemNotification("Empty File", "No rows were found in the uploaded file.", false);
-            return;
-        }
-
-        const sampleRow = rows[0];
-        const headerMap = {};
-        Object.keys(sampleRow).forEach(k => { headerMap[normalizeHeaderKey(k)] = k; });
-
-        const numKey = headerMap["EMPLOYEE NUMBER"];
-        const nameKey = headerMap["EMPLOYEE NAME"];
-        const posKey = headerMap["POSITION"];
-
-        if (!numKey || !nameKey) {
-            showSystemNotification("Missing Columns", 'The file must include "EMPLOYEE NUMBER" and "EMPLOYEE NAME" columns.', false);
-            return;
-        }
-
-        const parsedEmployees = [];
-        let skipped = 0;
-        rows.forEach(row => {
-            const empId = String(row[numKey] || "").trim().toUpperCase();
-            const empName = String(row[nameKey] || "").trim();
-            const empPosition = posKey ? String(row[posKey] || "").trim() : "";
-            if (!empId || !empName) { skipped++; return; }
-            parsedEmployees.push({ empId, empName, empPosition });
-        });
-
-        if (parsedEmployees.length === 0) {
-            showSystemNotification("Nothing to Import", "No valid rows with both an Employee Number and Employee Name were found.", false);
-            return;
-        }
-
-        let addedCount = 0, updatedCount = 0;
-        await mutateShared(STORAGE_KEYS.employees, (latest) => {
-            addedCount = 0; updatedCount = 0; 
-            parsedEmployees.forEach(({ empId, empName, empPosition }) => {
-                if (latest.items[empId]) updatedCount++; else addedCount++;
-                latest.items[empId] = { name: empName, position: empPosition };
-            });
-            return latest;
-        });
-
-        await refreshEmployees();
-        renderTables();
-        fileInput.value = "";
-        let summary = `Added ${addedCount}, updated ${updatedCount} employee record(s).`;
-        if (skipped > 0) summary += ` Skipped ${skipped} row(s) missing a number or name.`;
-        showSystemNotification("Import Complete", summary);
-    } catch (e) {
-        showSystemNotification("Import Failed", e.message || "Could not read or import that file.", false);
-    } finally {
-        setBtnBusy("uploadEmpBtn", false, "", "Upload & Import");
-    }
-}
-
-function parseExcelFile(file) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error("Could not read the selected file."));
-        reader.onload = (e) => {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: "array" });
-                const firstSheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[firstSheetName];
-                const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-                resolve(json);
-            } catch (err) {
-                reject(new Error("That file doesn't look like a valid Excel/CSV file."));
-            }
-        };
-        reader.readAsArrayBuffer(file);
-    });
-}
-
-function editEmployee(oldEmpId) {
-    editingOldEmpId = oldEmpId;
-    document.getElementById("editEmpIdInput").value = oldEmpId;
-    document.getElementById("editEmpNameInput").value = employees.items[oldEmpId].name;
-    document.getElementById("editEmpPositionInput").value = employees.items[oldEmpId].position || "";
-    openModal("editEmployeeModal");
-}
-
-async function submitEmployeeEdit() {
-    let newEmpId = document.getElementById("editEmpIdInput").value.trim().toUpperCase();
-    let newName = document.getElementById("editEmpNameInput").value.trim();
-    let newPosition = document.getElementById("editEmpPositionInput").value.trim();
-
-    if (!newEmpId || !newName) {
-        showSystemNotification("Blank Fields", "Employee configurations cannot save empty fields.", false);
-        return;
-    }
-
-    const oldEmpId = editingOldEmpId;
-    setBtnBusy("saveEmpEditBtn", true, "Saving…", "Save Changes");
-    try {
-        await mutateShared(STORAGE_KEYS.employees, (latest) => {
-            if (newEmpId !== oldEmpId && latest.items[newEmpId]) {
-                throw new Error(`The target Employee ID "${newEmpId}" is already taken.`);
-            }
-            if (newEmpId !== oldEmpId) delete latest.items[oldEmpId];
-            latest.items[newEmpId] = { name: newName, position: newPosition };
-            return latest;
-        });
-        await refreshEmployees();
-        renderTables();
-        showSystemNotification("Update Success", "Profile records re-mapped and updated successfully.");
-    } catch (e) {
-        showSystemNotification("Collision Alert", e.message, false);
-    } finally {
-        setBtnBusy("saveEmpEditBtn", false, "", "Save Changes");
-    }
-}
-
-async function deleteEmployee(empId) {
-    if (!confirm(`⚠️ Remove employee "${employees.items[empId].name}" (${empId})?`)) return;
-    try {
-        await mutateShared(STORAGE_KEYS.employees, (latest) => {
-            delete latest.items[empId];
-            return latest;
-        });
-        await refreshEmployees();
-        renderTables();
-    } catch (e) {
-        showSystemNotification("Remove Failed", e.message, false);
-    }
-}
-
-// --- TRANSACTION LIFECYCLE ---
 function handleItemScan(id) {
     if (!inventory.items[id]) {
         showSystemNotification("Scan Rejected", `Item profile code "${id}" not found inside inventory listings.`, false);
@@ -1259,93 +804,63 @@ function handleItemScan(id) {
     openModal("optionsModal");
 }
 
-function handleReleaseVerification() {
+window.handleReleaseVerification = function() {
     if (inventory.items[activeItemId].quantity <= 0) {
-        showSystemNotification("Release Rejected", `Transaction Denied: "${inventory.items[activeItemId].name}" is out of stock (Quantity is 0).`, false);
+        showSystemNotification("Release Rejected", `"${inventory.items[activeItemId].name}" is out of stock.`, false);
     } else {
         openModal("releaseModal");
     }
-}
+};
 
-function openAddModal() { openModal("addModal"); }
+window.openAddModal = function() { openModal("addModal"); };
 
-async function submitAdd() {
+window.submitAdd = async function() {
     let qty = parseInt(document.getElementById("addQty").value);
-    if (!(qty > 0)) {
-        showSystemNotification("Invalid Quantity", "Please enter a quantity greater than 0.", false);
-        return;
-    }
+    if (!(qty > 0)) return;
     const itemId = activeItemId;
 
-    setBtnBusy("submitAddBtn", true, "Saving…", "Submit to Inventory");
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
-            if (!latest.items[itemId]) throw new Error("Item no longer exists in the registry.");
+            if (!latest.items[itemId]) throw new Error("Item no longer exists.");
             latest.items[itemId].quantity += qty;
-            latest.items[itemId].baselineQty = latest.items[itemId].quantity;
             return latest;
         });
         await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()));
         await refreshInventory();
         renderTables();
-        const addedUnitLabel = inventory.items[itemId] ? formatUnit(inventory.items[itemId].unit, qty) : formatUnit("pc", qty);
-        showSystemNotification("Restock Success", `Successfully inbound-logged +${qty} ${addedUnitLabel} to inventory.`);
+        closeModals();
+        showSystemNotification("Restock Success", `Added +${qty} units to inventory.`);
     } catch (e) {
-        await refreshInventory();
-        renderTables();
         showSystemNotification("Add Failed", e.message, false);
-    } finally {
-        setBtnBusy("submitAddBtn", false, "", "Submit to Inventory");
     }
-}
+};
 
-async function openEmployeeSelectionModal() {
+window.openEmployeeSelectionModal = async function() {
     let qty = parseInt(document.getElementById("releaseQty").value);
-    if (!(qty > 0)) {
-        showSystemNotification("Invalid Quantity", "Please enter a quantity greater than 0.", false);
-        return;
-    }
-
-    await refreshInventory();
-    if (!inventory.items[activeItemId]) {
-        showSystemNotification("Item Missing", "This item no longer exists in the registry.", false);
-        renderTables();
-        return;
-    }
-    if (qty > inventory.items[activeItemId].quantity) {
-        showSystemNotification("Allocation Error", `Requested allocation (${qty}) exceeds current stock capacity (${inventory.items[activeItemId].quantity}).`, false);
-        renderTables();
-        return;
-    }
+    if (!(qty > 0)) return;
 
     pendingReleaseQty = qty;
-
     activeEmployeeId = "";
     document.getElementById("employeeSearchInput").value = "";
     document.getElementById("employeeSearchResults").innerHTML = "";
-    document.getElementById("employeeSearchResults").style.display = "none";
-
+    
     const releaseDateInput = document.getElementById("releaseDate");
     releaseDateInput.valueAsDate = new Date();
-    const todayIso = releaseDateInput.value; 
-    releaseDateInput.min = todayIso;
-    releaseDateInput.max = todayIso;
     document.getElementById("finalReleaseBtn").disabled = true;
     openModal("employeeModal");
-}
+};
 
-function hideEmployeeSearchResults() {
+window.hideEmployeeSearchResults = function() {
     const resultsDiv = document.getElementById("employeeSearchResults");
     if (resultsDiv) resultsDiv.style.display = "none";
-}
+};
 
-function handleEmployeeSearchInput() {
+window.handleEmployeeSearchInput = function() {
     const query = document.getElementById("employeeSearchInput").value.trim().toLowerCase();
     const resultsDiv = document.getElementById("employeeSearchResults");
-    const submitBtn = document.getElementById("finalReleaseBtn");
 
     activeEmployeeId = "";
-    submitBtn.disabled = true;
+    document.getElementById("finalReleaseBtn").disabled = true;
 
     if (!query) {
         resultsDiv.innerHTML = "";
@@ -1367,183 +882,108 @@ function handleEmployeeSearchInput() {
         `<div class="employee-search-item" onmousedown="selectEmployeeFromSearch('${empId}')">${emp.name} <span style="color:#999;">(${empId})</span></div>`
     ).join("");
     resultsDiv.style.display = "block";
-}
+};
 
-function selectEmployeeFromSearch(empId) {
+window.selectEmployeeFromSearch = function(empId) {
     const emp = employees.items[empId];
     if (!emp) return;
     activeEmployeeId = empId;
     document.getElementById("employeeSearchInput").value = `${emp.name} (${empId})`;
     hideEmployeeSearchResults();
     document.getElementById("finalReleaseBtn").disabled = false;
-}
+};
 
-async function submitRelease() {
+window.submitRelease = async function() {
     const qty = pendingReleaseQty;
     const itemId = activeItemId;
     const empId = activeEmployeeId;
-    const releaseDateValue = document.getElementById("releaseDate").value;
-    const todayIso = new Date().toISOString().slice(0, 10);
-    if (releaseDateValue !== todayIso) {
-        showSystemNotification("Invalid Date", "The release date must be today's date. Please reopen the release flow.", false);
-        return;
-    }
-    const authDate = formatDateMMDDYYYY(releaseDateValue);
+    const authDate = formatDateMMDDYYYY(new Date());
     const empLabel = employees.items[empId] ? employees.items[empId].name : empId;
 
-    setBtnBusy("finalReleaseBtn", true, "Processing…", "Confirm & Deduct Stock");
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
             const item = latest.items[itemId];
-            if (!item) throw new Error("Item no longer exists in the registry.");
-            if (item.quantity < qty) throw new Error(`Only ${item.quantity} unit(s) remain now — someone else may have released stock first. Release cancelled.`);
+            if (item.quantity < qty) throw new Error("Insufficient stock capacity.");
             item.quantity -= qty;
             return latest;
         });
         await appendLog(itemId, "RELEASE", qty, empLabel, authDate);
         await refreshInventory();
         renderTables();
-        const unitLabel = inventory.items[itemId] ? formatUnit(inventory.items[itemId].unit, qty) : formatUnit("pc", qty);
         closeModals();
-        showSystemNotification("Release Dispatched", `Successfully signed out ${qty} ${unitLabel} to ${empLabel}.`);
+        showSystemNotification("Release Dispatched", `Issued ${qty} units to ${empLabel}.`);
     } catch (e) {
+        showSystemNotification("Release Failed", e.message, false);
+    }
+};
+
+window.createNewItemType = async function() {
+    let idInput = document.getElementById("newItemId");
+    let nameInput = document.getElementById("newItemName");
+    let unitInput = document.getElementById("newItemUnit");
+
+    let itemId = idInput.value.trim().toUpperCase();
+    let itemName = nameInput.value.trim();
+    let itemUnit = unitInput.value;
+
+    if (!itemId || !itemName) return;
+
+    try {
+        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
+            if (latest.items[itemId]) throw new Error("Item ID already exists.");
+            latest.items[itemId] = { name: itemName, unit: itemUnit, quantity: 0 };
+            return latest;
+        });
         await refreshInventory();
         renderTables();
-        showSystemNotification("Release Failed", e.message, false);
-    } finally {
-        setBtnBusy("finalReleaseBtn", false, "", "Confirm & Deduct Stock");
+        idInput.value = ""; nameInput.value = "";
+        showSystemNotification("Registered", `Added "${itemId}".`);
+    } catch (e) {
+        showSystemNotification("Error", e.message, false);
     }
-}
+};
 
-// --- EXCEL EXPORT UTILITY ---
-function exportToExcel() {
-    if (transactionLogs.items.length === 0) {
-        showSystemNotification("Export Warning", "There are no transaction records to export yet.", false);
-        return;
+window.createNewEmployee = async function() {
+    let idInput = document.getElementById("newEmpId");
+    let nameInput = document.getElementById("newEmpName");
+    let positionInput = document.getElementById("newEmpPosition");
+    let empId = idInput.value.trim().toUpperCase();
+    let empName = nameInput.value.trim();
+    let empPosition = positionInput.value.trim();
+
+    if (!empId || !empName) return;
+
+    try {
+        await mutateShared(STORAGE_KEYS.employees, (latest) => {
+            latest.items[empId] = { name: empName, position: empPosition };
+            return latest;
+        });
+        await refreshEmployees();
+        renderTables();
+        idInput.value = ""; nameInput.value = ""; positionInput.value = "";
+        showSystemNotification("Success", `Registered employee "${empId}".`);
+    } catch (e) {
+        showSystemNotification("Error", e.message, false);
     }
+};
 
+window.exportToExcel = function() {
+    if (transactionLogs.items.length === 0) return;
     let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "System Timestamp,Product Item ID,Action Type,Quantity Ordered,Authorized Employee/Recipient,Signature Release Date\r\n";
+    csvContent += "Timestamp,Item ID,Action,Quantity,Employee,Date\r\n";
 
     transactionLogs.items.forEach(log => {
-        let row = [
-            `"${log.timestamp}"`,
-            `"${log.itemId}"`,
-            `"${log.action}"`,
-            log.qty,
-            `"${log.employee}"`,
-            `"${log.authorizedDate}"`
-        ].join(",");
-        csvContent += row + "\r\n";
+        csvContent += `"${log.timestamp}","${log.itemId}","${log.action}",${log.qty},"${log.employee}","${log.authorizedDate}"\r\n`;
     });
 
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-
-    const fileTimestamp = new Date().toISOString().slice(0, 10);
-    link.setAttribute("download", `CVLIS_Inventory_Report_${fileTimestamp}.csv`);
-
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", `CVLIS_Export.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-}
+};
 
-function renderRisTable() {
-    const risBody = document.getElementById("risTable");
-    risBody.innerHTML = "";
-
-    const releases = (transactionLogs.items || []).filter(log => log.action === "RELEASE");
-
-    releases.forEach(log => {
-        const item = inventory.items[log.itemId];
-        const unit = item ? formatUnit(item.unit, log.qty) : "—";
-        const description = item ? item.name : log.itemId;
-
-        risBody.innerHTML += `<tr>
-            <td>${log.timestamp}</td>
-            <td>${log.authorizedDate}</td>
-            <td>${log.qty}</td>
-            <td>${unit}</td>
-            <td>${description}</td>
-            <td style="text-align:center;">✔</td>
-            <td></td>
-            <td>${log.employee}</td>
-        </tr>`;
-    });
-
-    if (!risBody.innerHTML) risBody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#999;">No items released yet.</td></tr>`;
-}
-
-function renderIncomingItemsTable() {
-    const incomingBody = document.getElementById("incomingItemsTable");
-    if (!incomingBody) return;
-    incomingBody.innerHTML = "";
-
-    const incoming = (transactionLogs.items || []).filter(log => log.action === "ADD");
-
-    incoming.forEach(log => {
-        const item = inventory.items[log.itemId];
-        const unit = item ? formatUnit(item.unit, log.qty) : "—";
-        const description = item ? item.name : log.itemId;
-
-        incomingBody.innerHTML += `<tr>
-            <td>${log.authorizedDate}</td>
-            <td>${log.itemId}</td>
-            <td>${description}</td>
-            <td>${unit}</td>
-            <td>${log.qty}</td>
-        </tr>`;
-    });
-
-    if (!incomingBody.innerHTML) incomingBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color:#999;">No incoming items recorded yet.</td></tr>`;
-}
-
-// --- LOW STOCK WARNING ---
-let lowStockListOpen = false;
-
-function isLowStock(item) {
-    return item.baselineQty > 0 && item.quantity <= item.baselineQty * 0.15;
-}
-
-function getLowStockEntries() {
-    return Object.entries(inventory.items).filter(([id, item]) => isLowStock(item));
-}
-
-function updateLowStockBanner() {
-    const banner = document.getElementById("lowStockBanner");
-    const countSpan = document.getElementById("lowStockCount");
-    const panel = document.getElementById("lowStockListPanel");
-    if (!banner || !panel) return;
-
-    const lowEntries = getLowStockEntries();
-
-    if (lowEntries.length === 0) {
-        banner.style.display = "none";
-        lowStockListOpen = false;
-        panel.classList.remove("open");
-        panel.innerHTML = "";
-        return;
-    }
-
-    banner.style.display = "block";
-    countSpan.innerText = lowEntries.length;
-
-    panel.innerHTML = lowEntries.map(([id, item]) => {
-        const unitLabel = formatUnit(item.unit, item.quantity);
-        return `<div class="low-stock-item"><strong>${id}</strong> — ${item.name}: ${item.quantity} ${unitLabel} left (restocked to ${item.baselineQty} last time)</div>`;
-    }).join("");
-
-    panel.classList.toggle("open", lowStockListOpen);
-}
-
-function toggleLowStockList() {
-    lowStockListOpen = !lowStockListOpen;
-    const panel = document.getElementById("lowStockListPanel");
-    if (panel) panel.classList.toggle("open", lowStockListOpen);
-}
-
-// --- RENDERING ---
 function renderTables() {
     const invBody = document.getElementById("inventoryTable");
     invBody.innerHTML = "";
@@ -1556,15 +996,11 @@ function renderTables() {
             <td>${item.name} <span class="unit-label">${currentUnit}</span></td>
             <td>${item.quantity}</td>
             <td style="text-align:center;">
-                <button class="action-btn edit-btn" onclick="editItem('${id}')" title="Edit item description">✏️</button>
-                <button class="danger action-btn" onclick="deleteItem('${id}')" title="Delete product item type">🗑️</button>
+                <button class="action-btn edit-btn" onclick="editItem('${id}')">✏️</button>
+                <button class="danger action-btn" onclick="deleteItem('${id}')">🗑️</button>
             </td>
         </tr>`;
     }
-
-    renderRisTable();
-    renderIncomingItemsTable();
-    updateLowStockBanner();
 
     const empBody = document.getElementById("employeesTable");
     empBody.innerHTML = "";
@@ -1574,8 +1010,8 @@ function renderTables() {
             <td>${emp.name}</td>
             <td>${emp.position || ""}</td>
             <td style="text-align:center;">
-                <button class="action-btn edit-btn" onclick="editEmployee('${empId}')" title="Edit Employee ID and Name">✏️</button>
-                <button class="danger action-btn" onclick="deleteEmployee('${empId}')" title="Remove Employee Instance">🗑️</button>
+                <button class="action-btn edit-btn" onclick="editEmployee('${empId}')">✏️</button>
+                <button class="danger action-btn" onclick="deleteEmployee('${empId}')">🗑️</button>
             </td>
         </tr>`;
     }
@@ -1583,8 +1019,10 @@ function renderTables() {
 
 function updateBadgeDisplay(text, color) {
     const badge = document.getElementById("scannerStatus");
-    badge.innerText = text;
-    badge.style.background = color;
+    if (badge) {
+        badge.innerText = text;
+        badge.style.background = color;
+    }
 }
 
 function openModal(id) {
@@ -1592,34 +1030,17 @@ function openModal(id) {
     document.getElementById(id).style.display = "flex";
 }
 
-function closeModals() {
+window.closeModals = function() {
     document.querySelectorAll('.modal').forEach(m => m.style.display = "none");
-    document.getElementById("finalReleaseBtn").disabled = true;
-    document.getElementById("addQty").value = 1;
-    document.getElementById("releaseQty").value = 1;
-    document.getElementById("employeeSearchInput").value = "";
-    document.getElementById("employeeSearchResults").innerHTML = "";
-    document.getElementById("employeeSearchResults").style.display = "none";
-    activeEmployeeId = "";
-    editingOldEmpId = "";
-    editingItemId = "";
-}
+};
 
-// ============================================================
-// BOOT
-// ============================================================
+// Start the Application
 (async function boot() {
     setSyncStatus("stale", "Loading…");
     try {
         await loadAllData();
     } catch (e) {
-        console.error("Initial load failed", e);
-        setSyncStatus("error", "Load failed");
-        inventory = { rev: 0, items: defaultInventoryItems };
-        employees = { rev: 0, items: defaultEmployeeItems };
-        transactionLogs = { rev: 0, items: [] };
         renderTables();
-        showSystemNotification("Sync Warning", "Could not load shared data — showing local defaults. Changes may not save.", false);
     }
     startPolling();
 })();
