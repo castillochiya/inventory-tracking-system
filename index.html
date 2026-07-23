@@ -1166,6 +1166,193 @@ window.createNewEmployee = async function() {
         showSystemNotification("Error", e.message, false);
     }
 };
+    function scanTick() {
+    if (!scanning) return;
+
+    // Fixed the readyState condition (changed videoElement.HAVE_ENOUGH_DATA to 4)
+    if (videoElement && videoElement.readyState === 4) {
+        canvasElement.height = videoElement.videoHeight;
+        canvasElement.width = videoElement.videoWidth;
+        canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
+
+        try {
+            const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
+            if (typeof jsQR !== "undefined") {
+                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+                if (code && code.data) {
+                    const now = Date.now();
+                    if (code.data !== lastScanCode || now - lastScanTime > 3000) {
+                        lastScanCode = code.data;
+                        lastScanTime = now;
+                        handleRawScan(code.data);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Frame decoding error:", e);
+        }
+    }
+    requestAnimationFrame(scanTick);
+}
+    window.importEmployeesFromExcel = async function() {
+    const fileInput = document.getElementById("empExcelInput");
+    if (!fileInput.files.length) {
+        showSystemNotification("Upload Error", "Please select an Excel (.xlsx/.csv) file first.", false);
+        return;
+    }
+    
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = async function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+            
+            let addedCount = 0;
+            
+            await mutateShared(STORAGE_KEYS.employees, (latest) => {
+                jsonData.forEach(row => {
+                    // Match headers defined in the UI instructions
+                    let empId = (row["EMPLOYEE NUMBER"] || "").toString().trim().toUpperCase();
+                    let empName = (row["EMPLOYEE NAME"] || "").toString().trim();
+                    let empPosition = (row["POSITION"] || "").toString().trim();
+                    
+                    if (empId && empName) {
+                        latest.items[empId] = { name: empName, position: empPosition };
+                        addedCount++;
+                    }
+                });
+                return latest;
+            });
+            
+            await refreshEmployees();
+            renderTables();
+            fileInput.value = ""; // Clear the input
+            showSystemNotification("Import Successful", `Successfully imported and registered ${addedCount} employees.`);
+        } catch (err) {
+            showSystemNotification("Import Failed", "Could not read file. Ensure it is a valid Excel/CSV file with the correct headers.", false);
+        }
+    };
+    
+    reader.readAsArrayBuffer(file);
+};
+    // Opens the edit modal and populates it with the item's current details
+window.editItem = function(id) {
+    editingItemId = id;
+    const item = inventory.items[id];
+    if (!item) return;
+    
+    document.getElementById("editItemIdLabel").value = id;
+    document.getElementById("editItemNameInput").value = item.name;
+    openModal("editItemModal");
+};
+
+// Submits the changes made in the edit modal
+window.submitItemEdit = async function() {
+    const newName = document.getElementById("editItemNameInput").value.trim();
+    if (!newName) {
+        showSystemNotification("Invalid Input", "Item description cannot be empty.", false);
+        return;
+    }
+    
+    try {
+        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
+            if (latest.items[editingItemId]) {
+                latest.items[editingItemId].name = newName;
+            }
+            return latest;
+        });
+        
+        await refreshInventory();
+        renderTables();
+        closeModals();
+        showSystemNotification("Update Success", `Item description updated for ${editingItemId}.`);
+    } catch (e) {
+        showSystemNotification("Update Failed", e.message, false);
+    }
+};
+
+// Prompts for confirmation and deletes the item
+window.deleteItem = async function(id) {
+    if (!confirm(`Are you sure you want to permanently delete "${id}"? This will not affect past logs, but removes it from the active registry.`)) return;
+    
+    try {
+        await mutateShared(STORAGE_KEYS.inventory, (latest) => {
+            delete latest.items[id];
+            return latest;
+        });
+        
+        await refreshInventory();
+        renderTables();
+        showSystemNotification("Item Deleted", `Item ${id} was removed successfully.`);
+    } catch (e) {
+        showSystemNotification("Delete Failed", e.message, false);
+    }
+};
+    // Opens the employee edit modal
+window.editEmployee = function(id) {
+    editingOldEmpId = id;
+    const emp = employees.items[id];
+    if (!emp) return;
+    
+    document.getElementById("editEmpIdInput").value = id;
+    document.getElementById("editEmpNameInput").value = emp.name;
+    document.getElementById("editEmpPositionInput").value = emp.position || "";
+    
+    openModal("editEmployeeModal");
+};
+
+// Submits the changes, handling both profile edits and Employee ID changes
+window.submitEmployeeEdit = async function() {
+    const newId = document.getElementById("editEmpIdInput").value.trim().toUpperCase();
+    const newName = document.getElementById("editEmpNameInput").value.trim();
+    const newPosition = document.getElementById("editEmpPositionInput").value.trim();
+    
+    if (!newId || !newName) {
+        showSystemNotification("Invalid Input", "Employee ID and Name are required.", false);
+        return;
+    }
+    
+    try {
+        await mutateShared(STORAGE_KEYS.employees, (latest) => {
+            // If the ID changed, delete the old entry and create a new one
+            if (newId !== editingOldEmpId) {
+                if (latest.items[newId]) throw new Error(`An employee with ID "${newId}" already exists.`);
+                delete latest.items[editingOldEmpId];
+            }
+            latest.items[newId] = { name: newName, position: newPosition };
+            return latest;
+        });
+        
+        await refreshEmployees();
+        renderTables();
+        closeModals();
+        showSystemNotification("Update Success", `Employee profile for ${newId} has been updated.`);
+    } catch (e) {
+        showSystemNotification("Update Failed", e.message, false);
+    }
+};
+
+// Prompts for confirmation and deletes the employee
+window.deleteEmployee = async function(id) {
+    if (!confirm(`Are you sure you want to permanently delete employee ${id}?`)) return;
+    
+    try {
+        await mutateShared(STORAGE_KEYS.employees, (latest) => {
+            delete latest.items[id];
+            return latest;
+        });
+        
+        await refreshEmployees();
+        renderTables();
+        showSystemNotification("Employee Deleted", `Employee ${id} was removed successfully.`);
+    } catch (e) {
+        showSystemNotification("Delete Failed", e.message, false);
+    }
+};
 
 // ============================================================
 // REPORT TAB: date-filtered RIS / Incoming Items rendering
