@@ -83,8 +83,12 @@
         .unit-label { font-size: 12px; color: #666; background: #e9ecef; padding: 2px 6px; border-radius: 4px; margin-left: 5px; }
 
         /* Layout header for report tools */
-        .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .report-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
         .report-header h3 { margin: 0; }
+        .report-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .report-controls label { font-size: 13px; color: #555; font-weight: bold; margin: 0; }
+        .report-controls input[type="date"] { width: auto; margin: 0; padding: 8px 10px; }
+        .report-note { font-size: 12px; color: #888; margin: -4px 0 12px 0; }
 
         .btn-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.5); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; margin-right: 6px; vertical-align: -1px; }
 
@@ -227,8 +231,16 @@
     <div id="tab-report" class="tab-content">
         <div class="report-header">
             <h3 style="margin: 0;">📄 Requisition and Issuance Slip (RIS)</h3>
-            <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
+            <div class="report-controls">
+                <label for="reportDateFrom">From:</label>
+                <input type="date" id="reportDateFrom" onchange="handleReportDateRangeChange()">
+                <label for="reportDateTo">To:</label>
+                <input type="date" id="reportDateTo" onchange="handleReportDateRangeChange()">
+                <button type="button" style="margin:0; padding:8px 14px; font-size:13px; background:#6c757d;" onclick="jumpReportDateToToday()">Today</button>
+                <button class="success" style="margin: 0; padding: 8px 16px; font-size: 13px;" onclick="exportToExcel()">📥 Export to Excel</button>
+            </div>
         </div>
+        <p class="report-note">Only issuance records within the selected date range can be exported. Records are kept for 1 year and then permanently removed.</p>
         <div class="table-container" style="height: 400px;">
             <table>
                 <thead>
@@ -250,6 +262,7 @@
         <div class="report-header" style="margin-top: 25px;">
             <h3 style="margin: 0;">📥 Incoming Items Log</h3>
         </div>
+        <p class="report-note">Showing incoming stock for the date range selected above.</p>
         <div class="table-container" style="height: 350px;">
             <table>
                 <thead>
@@ -445,7 +458,8 @@ if (!window.storage) {
     };
 }
 
-const MAX_LOG_ENTRIES = 500;
+const MAX_LOG_ENTRIES = 5000;
+const LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000; // 1 year
 const POLL_INTERVAL_MS = 5000;
 
 let activeItemId = "";
@@ -518,6 +532,27 @@ function normalizeInventoryShape(invData) {
     return invData;
 }
 
+// Turns a MM-DD-YYYY authorizedDate string into an ISO YYYY-MM-DD string for filtering/date-math.
+function parseAuthorizedDateToISO(mmddyyyy) {
+    if (!mmddyyyy || typeof mmddyyyy !== "string") return null;
+    const m = mmddyyyy.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    if (!m) return null;
+    return `${m[3]}-${m[1]}-${m[2]}`;
+}
+
+// Backfills fields on log entries that were written before ts/isoDate/itemName/unit existed,
+// so older shared data keeps working with the date filter and retention pruning.
+function normalizeLogsShape(logsData) {
+    if (!Array.isArray(logsData.items)) logsData.items = [];
+    logsData.items.forEach(log => {
+        if (!log.ts) log.ts = Date.now();
+        if (!log.isoDate) log.isoDate = parseAuthorizedDateToISO(log.authorizedDate) || new Date().toISOString().slice(0, 10);
+        if (!log.unit) log.unit = (inventory.items[log.itemId] && inventory.items[log.itemId].unit) || "pc";
+        if (!log.itemName) log.itemName = (inventory.items[log.itemId] && inventory.items[log.itemId].name) || log.itemId;
+    });
+    return logsData;
+}
+
 async function loadAllData() {
     const [inv, emp, logs] = await Promise.all([
         loadOrSeed(STORAGE_KEYS.inventory, defaultInventoryItems),
@@ -526,7 +561,15 @@ async function loadAllData() {
     ]);
     inventory = normalizeInventoryShape(inv);
     employees = normalizeEmployeeShape(emp);
-    transactionLogs = logs;
+    transactionLogs = normalizeLogsShape(logs);
+
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const fromInput = document.getElementById("reportDateFrom");
+    const toInput = document.getElementById("reportDateTo");
+    if (fromInput && !fromInput.value) fromInput.value = todayIso;
+    if (toInput && !toInput.value) toInput.value = todayIso;
+
+    await pruneOldLogsIfNeeded();
     renderTables();
     setSyncStatus("ok", "Synced");
 }
@@ -599,14 +642,32 @@ function normalizeUnitKey(rawUnit) {
 
 async function refreshInventory() { const r = await safeGet(STORAGE_KEYS.inventory); if (r && r.value) try { inventory = normalizeInventoryShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
 async function refreshEmployees() { const r = await safeGet(STORAGE_KEYS.employees); if (r && r.value) try { employees = normalizeEmployeeShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
-async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = typeof r.value === 'string' ? JSON.parse(r.value) : r.value; } catch(e){} }
+async function refreshLogs() { const r = await safeGet(STORAGE_KEYS.logs); if (r && r.value) try { transactionLogs = normalizeLogsShape(typeof r.value === 'string' ? JSON.parse(r.value) : r.value); } catch(e){} }
 
-async function appendLog(itemId, action, qty, employeeLabel, authorizedDate) {
-    const timestamp = new Date().toLocaleTimeString();
+// Permanently drops any log entries older than the 1-year retention window.
+// Cheap no-op write is skipped when nothing is actually expired yet.
+async function pruneOldLogsIfNeeded() {
+    const cutoff = Date.now() - LOG_RETENTION_MS;
+    const hasOld = Array.isArray(transactionLogs.items) && transactionLogs.items.some(log => (log.ts || 0) < cutoff);
+    if (!hasOld) return;
     try {
         await mutateShared(STORAGE_KEYS.logs, (latest) => {
             if (!Array.isArray(latest.items)) latest.items = [];
-            latest.items.unshift({ timestamp, itemId, action, qty, employee: employeeLabel, authorizedDate });
+            latest.items = latest.items.filter(log => (log.ts || 0) >= cutoff);
+            return latest;
+        });
+        await refreshLogs();
+    } catch (e) {}
+}
+
+async function appendLog(itemId, action, qty, employeeLabel, authorizedDate, itemName, unit) {
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString();
+    const isoDate = now.toISOString().slice(0, 10);
+    try {
+        await mutateShared(STORAGE_KEYS.logs, (latest) => {
+            if (!Array.isArray(latest.items)) latest.items = [];
+            latest.items.unshift({ timestamp, ts: now.getTime(), isoDate, itemId, itemName, unit, action, qty, employee: employeeLabel, authorizedDate });
             if (latest.items.length > MAX_LOG_ENTRIES) latest.items = latest.items.slice(0, MAX_LOG_ENTRIES);
             return latest;
         });
@@ -619,6 +680,7 @@ function startPolling() {
         if (anyModalOpen) return;
         try {
             await Promise.all([refreshInventory(), refreshEmployees(), refreshLogs()]);
+            await pruneOldLogsIfNeeded();
             renderTables();
             setSyncStatus("ok", "Synced");
         } catch (e) {
@@ -818,6 +880,8 @@ window.submitAdd = async function() {
     let qty = parseInt(document.getElementById("addQty").value);
     if (!(qty > 0)) return;
     const itemId = activeItemId;
+    const itemName = inventory.items[itemId] ? inventory.items[itemId].name : itemId;
+    const unit = inventory.items[itemId] ? inventory.items[itemId].unit : "pc";
 
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
@@ -825,8 +889,9 @@ window.submitAdd = async function() {
             latest.items[itemId].quantity += qty;
             return latest;
         });
-        await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()));
+        await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()), itemName, unit);
         await refreshInventory();
+        await refreshLogs();
         renderTables();
         closeModals();
         showSystemNotification("Restock Success", `Added +${qty} units to inventory.`);
@@ -899,6 +964,8 @@ window.submitRelease = async function() {
     const empId = activeEmployeeId;
     const authDate = formatDateMMDDYYYY(new Date());
     const empLabel = employees.items[empId] ? employees.items[empId].name : empId;
+    const itemName = inventory.items[itemId] ? inventory.items[itemId].name : itemId;
+    const unit = inventory.items[itemId] ? inventory.items[itemId].unit : "pc";
 
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
@@ -907,8 +974,9 @@ window.submitRelease = async function() {
             item.quantity -= qty;
             return latest;
         });
-        await appendLog(itemId, "RELEASE", qty, empLabel, authDate);
+        await appendLog(itemId, "RELEASE", qty, empLabel, authDate, itemName, unit);
         await refreshInventory();
+        await refreshLogs();
         renderTables();
         closeModals();
         showSystemNotification("Release Dispatched", `Issued ${qty} units to ${empLabel}.`);
@@ -967,25 +1035,146 @@ window.createNewEmployee = async function() {
     }
 };
 
-window.exportToExcel = function() {
-    if (transactionLogs.items.length === 0) return;
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
-    csvContent += "Timestamp,Item ID,Action,Quantity,Employee,Date\r\n";
-
-    transactionLogs.items.forEach(log => {
-        csvContent += `"${log.timestamp}","${log.itemId}","${log.action}",${log.qty},"${log.employee}","${log.authorizedDate}"\r\n`;
-    });
-
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", `CVLIS_Export.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+// ============================================================
+// REPORT TAB: date-filtered RIS / Incoming Items rendering
+// ============================================================
+window.jumpReportDateToToday = function() {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    document.getElementById("reportDateFrom").value = todayIso;
+    document.getElementById("reportDateTo").value = todayIso;
+    renderReportTables();
 };
 
-function renderTables() {
+// If the user sets a "From" after the current "To" (or vice versa), keep the range sane
+// by snapping the other end to match, then re-render.
+window.handleReportDateRangeChange = function() {
+    const fromInput = document.getElementById("reportDateFrom");
+    const toInput = document.getElementById("reportDateTo");
+    if (fromInput.value && toInput.value && fromInput.value > toInput.value) {
+        toInput.value = fromInput.value;
+    }
+    renderReportTables();
+};
+
+function getSelectedReportDateRange() {
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const fromInput = document.getElementById("reportDateFrom");
+    const toInput = document.getElementById("reportDateTo");
+    const from = (fromInput && fromInput.value) ? fromInput.value : todayIso;
+    const to = (toInput && toInput.value) ? toInput.value : todayIso;
+    return from <= to ? { from, to } : { from: to, to: from };
+}
+
+function getLogsByActionInRange(action, from, to) {
+    return (transactionLogs.items || []).filter(log => log.action === action && log.isoDate >= from && log.isoDate <= to);
+}
+
+window.renderReportTables = function() {
+    const { from, to } = getSelectedReportDateRange();
+    renderRISTable(from, to);
+    renderIncomingTable(from, to);
+};
+
+function formatRangeLabel(from, to) {
+    return from === to ? from : `${from} to ${to}`;
+}
+
+function renderRISTable(from, to) {
+    const body = document.getElementById("risTable");
+    if (!body) return;
+    body.innerHTML = "";
+
+    const rows = getLogsByActionInRange("RELEASE", from, to).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    if (rows.length === 0) {
+        body.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#999;">No issuance records for ${formatRangeLabel(from, to)}.</td></tr>`;
+        return;
+    }
+
+    rows.forEach(log => {
+        body.innerHTML += `<tr>
+            <td>${log.timestamp}</td>
+            <td>${log.authorizedDate}</td>
+            <td>${log.qty}</td>
+            <td>${formatUnit(log.unit, log.qty)}</td>
+            <td>${log.itemName}</td>
+            <td style="text-align:center;">✓</td>
+            <td></td>
+            <td>${log.employee}</td>
+        </tr>`;
+    });
+}
+
+function renderIncomingTable(from, to) {
+    const body = document.getElementById("incomingItemsTable");
+    if (!body) return;
+    body.innerHTML = "";
+
+    const rows = getLogsByActionInRange("ADD", from, to).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    if (rows.length === 0) {
+        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#999;">No incoming records for ${formatRangeLabel(from, to)}.</td></tr>`;
+        return;
+    }
+
+    rows.forEach(log => {
+        body.innerHTML += `<tr>
+            <td>${log.authorizedDate}</td>
+            <td>${log.itemId}</td>
+            <td>${log.itemName}</td>
+            <td>${formatUnit(log.unit, log.qty)}</td>
+            <td>${log.qty}</td>
+        </tr>`;
+    });
+}
+
+// Exports the RIS table for the currently selected date only, matching its columns exactly.
+// Every 10 rows are put on their own sheet ("Page 1", "Page 2", ...) so each page prints
+// separately, same as a paper RIS form.
+window.exportToExcel = function() {
+    if (typeof XLSX === "undefined") {
+        showSystemNotification("Export Failed", "The Excel export library didn't load. Check your internet connection.", false);
+        return;
+    }
+
+    const { from, to } = getSelectedReportDateRange();
+    const rows = getLogsByActionInRange("RELEASE", from, to).slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+
+    if (rows.length === 0) {
+        showSystemNotification("Nothing to Export", `No issuance records found for ${formatRangeLabel(from, to)}.`, false);
+        return;
+    }
+
+    const headerRow = ["Timestamp", "Date Requested/ Received", "Quantity", "Unit", "Item Description", "Yes", "No", "Name and Signature Requested/ Received By"];
+    const pageSize = 10;
+    const totalPages = Math.ceil(rows.length / pageSize);
+    const wb = XLSX.utils.book_new();
+
+    for (let p = 0; p < totalPages; p++) {
+        const pageRows = rows.slice(p * pageSize, p * pageSize + pageSize);
+        const aoa = [headerRow];
+        pageRows.forEach(log => {
+            aoa.push([
+                log.timestamp,
+                log.authorizedDate,
+                log.qty,
+                formatUnit(log.unit, log.qty),
+                log.itemName,
+                "✓",
+                "",
+                log.employee
+            ]);
+        });
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = [{ wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 30 }, { wch: 6 }, { wch: 6 }, { wch: 34 }];
+        XLSX.utils.book_append_sheet(wb, ws, `Page ${p + 1}`);
+    }
+
+    const fileRangeLabel = from === to ? from : `${from}_to_${to}`;
+    XLSX.writeFile(wb, `RIS_${fileRangeLabel}.xlsx`);
+};
+
+function renderInventoryTable() {
     const invBody = document.getElementById("inventoryTable");
+    if (!invBody) return;
     invBody.innerHTML = "";
 
     for (let id in inventory.items) {
@@ -1001,9 +1190,13 @@ function renderTables() {
             </td>
         </tr>`;
     }
+}
 
+function renderEmployeesTable() {
     const empBody = document.getElementById("employeesTable");
+    if (!empBody) return;
     empBody.innerHTML = "";
+
     for (const [empId, emp] of getSortedEmployeeEntries()) {
         empBody.innerHTML += `<tr>
             <td><strong>${empId}</strong></td>
@@ -1015,6 +1208,12 @@ function renderTables() {
             </td>
         </tr>`;
     }
+}
+
+function renderTables() {
+    renderInventoryTable();
+    renderEmployeesTable();
+    renderReportTables();
 }
 
 function updateBadgeDisplay(text, color) {
