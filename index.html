@@ -903,20 +903,30 @@ window.updateRestockProceedState = updateRestockProceedState;
 window.submitRestock = async function() {
     const itemId = restockDetectedItemId;
     const qty = parseInt(document.getElementById("restockQty").value);
+    
     if (!itemId || !(qty > 0)) return;
+    
     const itemName = inventory.items[itemId] ? inventory.items[itemId].name : itemId;
     const unit = inventory.items[itemId] ? inventory.items[itemId].unit : "pc";
 
     try {
         await mutateShared(STORAGE_KEYS.inventory, (latest) => {
             if (!latest.items[itemId]) throw new Error("Item no longer exists.");
+            
+            // Add the restocked quantity
             latest.items[itemId].quantity += qty;
+            
+            // Update the baseline to reflect the new "full" stock level
+            latest.items[itemId].baselineQty = latest.items[itemId].quantity;
+            
             return latest;
         });
+        
         await appendLog(itemId, "ADD", qty, "N/A", formatDateMMDDYYYY(new Date()), itemName, unit);
         await refreshInventory();
         await refreshLogs();
-        renderTables();
+        renderTables(); // This will recalculate the low-stock warnings
+        
         const doneName = itemName;
         cancelActionPanel();
         showSystemNotification("Restock Success", `Added +${qty} ${formatUnit(unit, qty)} to "${doneName}".`);
@@ -1511,6 +1521,49 @@ window.exportToExcel = function() {
     XLSX.writeFile(wb, `RIS_${fileRangeLabel}.xlsx`);
 };
 
+function checkLowStock() {
+    const banner = document.getElementById("lowStockBanner");
+    const countSpan = document.getElementById("lowStockCount");
+    const listPanel = document.getElementById("lowStockListPanel");
+    
+    if (!banner || !countSpan || !listPanel) return;
+
+    let lowStockItems = [];
+
+    // Check every item in the inventory
+    for (let id in inventory.items) {
+        let item = inventory.items[id];
+        
+        // Prevent division by zero if an item was registered but never restocked
+        let baseline = (item.baselineQty && item.baselineQty > 0) ? item.baselineQty : (item.quantity > 0 ? item.quantity : 1);
+        let percentage = (item.quantity / baseline) * 100;
+
+        if (percentage < 20) {
+            lowStockItems.push({
+                name: item.name,
+                qty: item.quantity,
+                unit: item.unit
+            });
+        }
+    }
+
+    // Update the UI based on the results
+    if (lowStockItems.length > 0) {
+        countSpan.innerText = lowStockItems.length;
+        banner.style.display = "block";
+        
+        // Populate the dropdown list
+        listPanel.innerHTML = lowStockItems.map(item => 
+            `<div class="low-stock-item">⚠️ <strong>${item.name}</strong> — Only ${item.qty} ${formatUnit(item.unit, item.qty)} left!</div>`
+        ).join("");
+    } else {
+        // Hide the banner if nothing is low
+        banner.style.display = "none";
+        listPanel.innerHTML = "";
+        listPanel.classList.remove("open");
+    }
+}
+
 function renderInventoryTable() {
     const invBody = document.getElementById("inventoryTable");
     if (!invBody) return;
@@ -1529,7 +1582,16 @@ function renderInventoryTable() {
             </td>
         </tr>`;
     }
+    
+    // Check for low stock every time the table is rendered
+    checkLowStock();
 }
+    window.toggleLowStockList = function() {
+    const listPanel = document.getElementById("lowStockListPanel");
+    if (listPanel) {
+        listPanel.classList.toggle("open");
+    }
+};
 
 function renderEmployeesTable() {
     const empBody = document.getElementById("employeesTable");
