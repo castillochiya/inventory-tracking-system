@@ -402,17 +402,17 @@
 // SEED DATA & ENGINE LOGIC
 // ============================================================
 const defaultInventoryItems = {
-    "ITEM001": { name: "Alcohol (1 gallon)", unit: "bottle", quantity: 6 },
-    "ITEM002": { name: "Alcohol (Isopropyl - Pump)", unit: "bottle", quantity: 2 },
-    "ITEM003": { name: "Ballpen (Energel- .5mm ball)", unit: "pc", quantity: 23 },
-    "ITEM004": { name: "Ballpen (flexstick - .5mm)", unit: "pc", quantity: 4 },
-    "ITEM005": { name: "Ballpen (My-Gel - .5mm)", unit: "pc", quantity: 23 },
-    "ITEM006": { name: "Ballpen (Pilot G-tec - .4mm)", unit: "pc", quantity: 23 },
-    "ITEM007": { name: "Ballpen (HBW Matrix)", unit: "pc", quantity: 17 },
-    "ITEM008": { name: "Battery (AA)", unit: "pc", quantity: 4 },
-    "ITEM009": { name: "Battery (AAA)", unit: "pc", quantity: 16 },
-    "ITEM010": { name: "Baygon", unit: "bottle", quantity: 9 },
-    "ITEM015": { name: "Bond Paper (A4)", unit: "ream", quantity: 186 }
+    "ITEM001": { name: "Alcohol (1 gallon)", unit: "bottle", quantity: 0 },
+    "ITEM002": { name: "Alcohol (Isopropyl - Pump)", unit: "bottle", quantity: 0 },
+    "ITEM003": { name: "Ballpen (Energel- .5mm ball)", unit: "pc", quantity: 0 },
+    "ITEM004": { name: "Ballpen (flexstick - .5mm)", unit: "pc", quantity: 0 },
+    "ITEM005": { name: "Ballpen (My-Gel - .5mm)", unit: "pc", quantity: 0 },
+    "ITEM006": { name: "Ballpen (Pilot G-tec - .4mm)", unit: "pc", quantity: 0 },
+    "ITEM007": { name: "Ballpen (HBW Matrix)", unit: "pc", quantity: 0 },
+    "ITEM008": { name: "Battery (AA)", unit: "pc", quantity: 0 },
+    "ITEM009": { name: "Battery (AAA)", unit: "pc", quantity: 0 },
+    "ITEM010": { name: "Baygon", unit: "bottle", quantity: 0 },
+    "ITEM015": { name: "Bond Paper (A4)", unit: "ream", quantity: 0 }
 };
 const defaultEmployeeItems = {
     "EMP01": { name: "Juan Dela Cruz", position: "Warehouse Staff" },
@@ -779,7 +779,8 @@ window.submitManualCode = function() {
 function scanTick() {
     if (!scanning) return;
 
-    if (videoElement && videoElement.readyState === videoElement.HAVE_ENOUGH_DATA) {
+    // Fixed the readyState condition (changed videoElement.HAVE_ENOUGH_DATA to 4)
+    if (videoElement && videoElement.readyState === 4) {
         canvasElement.height = videoElement.videoHeight;
         canvasElement.width = videoElement.videoWidth;
         canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
@@ -1196,35 +1197,8 @@ window.createNewEmployee = async function() {
         showSystemNotification("Error", e.message, false);
     }
 };
-    function scanTick() {
-    if (!scanning) return;
 
-    // Fixed the readyState condition (changed videoElement.HAVE_ENOUGH_DATA to 4)
-    if (videoElement && videoElement.readyState === 4) {
-        canvasElement.height = videoElement.videoHeight;
-        canvasElement.width = videoElement.videoWidth;
-        canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
-
-        try {
-            const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
-            if (typeof jsQR !== "undefined") {
-                const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
-                if (code && code.data) {
-                    const now = Date.now();
-                    if (code.data !== lastScanCode || now - lastScanTime > 3000) {
-                        lastScanCode = code.data;
-                        lastScanTime = now;
-                        handleRawScan(code.data);
-                    }
-                }
-            }
-        } catch (e) {
-            console.error("Frame decoding error:", e);
-        }
-    }
-    requestAnimationFrame(scanTick);
-}
-    window.importEmployeesFromExcel = async function() {
+window.importEmployeesFromExcel = async function() {
     const fileInput = document.getElementById("empExcelInput");
     if (!fileInput.files.length) {
         showSystemNotification("Upload Error", "Please select an Excel (.xlsx/.csv) file first.", false);
